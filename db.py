@@ -1,3 +1,6 @@
+import os
+import shutil
+from pathlib import Path
 from datetime import datetime, timezone
 from pwdlib import PasswordHash
 from sqlalchemy import event, inspect, text
@@ -14,7 +17,12 @@ from models import (
 )
 
 
-sqlite_file_name = "test.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", "."))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+sqlite_file_name = str(DATA_DIR / "test.db")
+SEED_DB = Path(__file__).resolve().parent / "clean.db"
+if not Path(sqlite_file_name).exists() and SEED_DB.exists():
+    shutil.copyfile(SEED_DB, sqlite_file_name)
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 engine = create_engine(sqlite_url, echo=False)
 ph_time = datetime.now(timezone.utc)

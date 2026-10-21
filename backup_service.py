@@ -12,7 +12,7 @@ from db import engine, sqlite_file_name
 from models import BackupSchedule
 from observability import logger
 
-BACKUP_DIRECTORY = Path(__file__).resolve().parent / "backups"
+BACKUP_DIRECTORY = Path(sqlite_file_name).resolve().parent / "backups"
 BACKUP_RETENTION_COUNT = 7
 BACKUP_LOCK_PATH = BACKUP_DIRECTORY / ".backup.lock"
 
