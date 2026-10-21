@@ -7,7 +7,8 @@ Deployment-only repository for the Sun Sync FastAPI backend.
 ```sh
 fly launch --no-deploy --copy-config      # pick/confirm the app name
 fly volumes create sunsync_data --size 1 --region sin
-fly secrets set SECRET_KEY=<64 hex chars> DEVICE_API_KEY=<64 hex chars> INITIAL_ADMIN_PASSWORD=<12+ chars>
+fly secrets set SECRET_KEY=<64 hex chars> DEVICE_API_KEY=<64 hex chars> INITIAL_ADMIN_PASSWORD=<12+ chars> \
+  MQTT_HOST=<broker host> MQTT_USERNAME=<user> MQTT_PASSWORD=<password>
 fly deploy
 ```
 
@@ -27,3 +28,15 @@ Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
   `/sessions/device/{id}/active`, and session pause/resume/end).
 - Capacity: at most `MAX_WIFI_USERS` (5) active wifi sessions and
   `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`.
+
+## MQTT (INA219 telemetry)
+
+The backend subscribes to `sunsync/ina219/+` on an **external** MQTT broker
+(Fly does not run one). Set `MQTT_HOST`, `MQTT_USERNAME` and `MQTT_PASSWORD` as
+secrets; `fly.toml` defaults to TLS on port 8883. The firmware publishes
+`{"voltage_v": <V>, "current_a": <A>}` to `sunsync/ina219/1` (solar panel) and
+`sunsync/ina219/2` (battery, 3S 18650 pack) every 2 seconds. The ESP32 and the
+backend must use the same broker and `MQTT_TOPIC_PREFIX`. The firmware's
+`PubSubClient` uses a plain TCP connection, so either point it at a broker
+listener that accepts it or switch the firmware to `WiFiClientSecure` for TLS.
+Set `MQTT_ENABLED=false` to turn the subscriber off.

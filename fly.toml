@@ -6,6 +6,10 @@ primary_region = "sin"
 [env]
   DATA_DIR = "/data"
   DEBUG = "false"
+  MQTT_ENABLED = "true"
+  MQTT_PORT = "8883"
+  MQTT_TLS = "true"
+  MQTT_TOPIC_PREFIX = "sunsync"
   ALLOWED_ORIGINS = "https://sunsync-backend.fly.dev"
 
 [mounts]

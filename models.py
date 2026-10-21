@@ -190,3 +190,12 @@ class BackupSchedule(SQLModel, table=True):
     frequency: str = Field(default="manual", nullable=False)
     last_backup_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None)
+
+class Ina219Reading(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sensor_id: int = Field(index=True, ge=1, le=2)
+    voltage_v: float
+    current_a: float
+    power_w: float
+    timestamp: datetime = Field(sa_column=Column(DateTime(timezone=True)),
+        default_factory=lambda: datetime.now(timezone.utc))

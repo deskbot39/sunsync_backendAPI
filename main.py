@@ -15,6 +15,7 @@ from db import (
     create_initial_settings,
     create_initial_backup_schedule,
 )
+from mqtt_service import start_mqtt, stop_mqtt
 from observability import logger
 from routers import auth, backups, devices, overview, parameters, sales, settings
 
@@ -29,10 +30,12 @@ async def lifespan(app: FastAPI):
     if DEBUG:
         create_dummy_data()
     backup_task = asyncio.create_task(backup_scheduler_loop())
+    start_mqtt()
     try:
         yield
     finally:
         backup_task.cancel()
+        stop_mqtt()
         await asyncio.gather(backup_task, return_exceptions=True)
     logger.info("Backend shutdown", extra={"event": "backend_shutdown"})
 
