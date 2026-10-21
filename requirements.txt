@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlmodel
+sqlalchemy
+pydantic
+PyJWT
+pwdlib[argon2]
+python-multipart
+paho-mqtt>=2.0

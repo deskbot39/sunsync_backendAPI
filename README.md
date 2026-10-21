@@ -65,3 +65,25 @@ count. The ESP32 remains authoritative for checking and consuming its
 in-memory coin credits before it activates the charging relay. This backend
 endpoint records sessions but does not by itself activate hardware or prove
 payment.
+
+## MQTT (INA219 telemetry)
+
+The backend subscribes to INA219 readings published by the ESP32. Enable it in `.env`:
+
+```
+MQTT_ENABLED=true
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_USERNAME=
+MQTT_PASSWORD=
+MQTT_TLS=false
+MQTT_TOPIC_PREFIX=sunsync
+```
+
+Topics: `<prefix>/ina219/1` (solar input) and `<prefix>/ina219/2` (second sensor). Payload (JSON, QoS 1):
+
+```
+{"voltage_v": 12.5, "current_a": 2.0}
+```
+
+Every valid message is stored in `ina219_reading`; sensor 1 also adds a `SystemStatus` row so the dashboard solar data stays live. Invalid or out-of-range messages are logged and dropped. Use a broker with authentication (e.g. Mosquitto) and enable TLS before exposing it publicly.

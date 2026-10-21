@@ -47,3 +47,11 @@ def validate_security_configuration() -> None:
         raise RuntimeError(
             "Set SECRET_KEY to a random value of at least 32 characters."
         )
+
+MQTT_ENABLED = str(get_env("MQTT_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+MQTT_HOST = get_env("MQTT_HOST", "localhost") or "localhost"
+MQTT_PORT = int(get_env("MQTT_PORT", "1883") or 1883)
+MQTT_USERNAME = get_env("MQTT_USERNAME")
+MQTT_PASSWORD = get_env("MQTT_PASSWORD")
+MQTT_TLS = str(get_env("MQTT_TLS", "false")).strip().lower() in {"1", "true", "yes", "on"}
+MQTT_TOPIC_PREFIX = (get_env("MQTT_TOPIC_PREFIX", "sunsync") or "sunsync").strip("/")
