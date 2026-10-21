@@ -105,6 +105,36 @@ class ServiceSessionStartTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 409)
 
+    def start(self, device_id, session_type):
+        with Session(self.engine) as session:
+            return start_device_session(
+                ServiceSessionCreate(
+                    device_id=device_id, session_type=session_type, credits=1,
+                ),
+                self.request(),
+                session,
+            )
+
+    def test_wifi_capacity_is_five_users(self):
+        with Session(self.engine) as session:
+            for index in range(6):
+                session.add(Devices(device_id=f"wifi-{index}"))
+            session.commit()
+        for index in range(5):
+            self.start(f"wifi-{index}", "wifi")
+        with self.assertRaises(HTTPException) as raised:
+            self.start("wifi-5", "wifi")
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_charging_capacity_is_one_user(self):
+        with Session(self.engine) as session:
+            session.add(Devices(device_id="charger-2"))
+            session.commit()
+        self.start("test-device", "charging")
+        with self.assertRaises(HTTPException) as raised:
+            self.start("charger-2", "charging")
+        self.assertEqual(raised.exception.status_code, 409)
+
     def test_settings_always_match_charging_rate_to_wifi_rate(self):
         with Session(self.engine) as session:
             updated = update_settings(

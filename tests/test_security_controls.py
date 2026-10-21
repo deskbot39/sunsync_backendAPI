@@ -133,8 +133,30 @@ class SecurityConfigurationTests(unittest.TestCase):
                 config.validate_security_configuration()
 
     def test_random_secret_of_sufficient_length_is_accepted(self):
-        with patch.object(config, "SECRET_KEY", "a" * 64):
+        with patch.object(config, "SECRET_KEY", "a" * 64), \
+                patch.object(config, "DEVICE_API_KEY", "b" * 64):
             config.validate_security_configuration()
+
+    def test_missing_device_key_is_rejected(self):
+        with patch.object(config, "SECRET_KEY", "a" * 64), \
+                patch.object(config, "DEVICE_API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                config.validate_security_configuration()
+
+    def test_device_key_check(self):
+        import device_auth
+        from fastapi import HTTPException
+        from starlette.requests import Request
+        request = Request({
+            "type": "http", "method": "GET", "path": "/", "headers": [],
+            "query_string": b"", "client": ("192.0.2.1", 1),
+        })
+        with patch.object(device_auth, "DEVICE_API_KEY", "k" * 40):
+            device_auth.require_device_key(request, "k" * 40)
+            for bad in (None, "", "wrong"):
+                with self.assertRaises(HTTPException) as raised:
+                    device_auth.require_device_key(request, bad)
+                self.assertEqual(raised.exception.status_code, 401)
 
 
 class StructuredLoggingTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlmodel import Session, select
 from db import get_session
 from models import (
@@ -12,6 +12,8 @@ from models import (
     WifiClientResponse,
     WifiSummaryResponse,
 )
+from config import MAX_CHARGING_USERS, MAX_WIFI_USERS
+from device_auth import require_device_key
 from routers.auth import get_current_admin, get_optional_admin
 from rate_limits import enforce_rate_limit
 
@@ -81,7 +83,7 @@ def get_wifi_summary(session: Session = Depends(get_session),
     )
 
 @router.get("/{id}", response_model=Sessions)
-def get_session(id: int, session: Session = Depends(get_session),
+def get_session_by_id(id: int, session: Session = Depends(get_session),
                 current_admin=Depends(get_current_admin)):
     session_data = session.get(Sessions, id)
     if not session_data:
@@ -89,7 +91,8 @@ def get_session(id: int, session: Session = Depends(get_session),
     expire_session_if_needed(session_data, session)
     return session_data
 
-@router.get("/device/{device_id}/active", response_model=Sessions | None)
+@router.get("/device/{device_id}/active", response_model=Sessions | None,
+            dependencies=[Depends(require_device_key)])
 def get_active_device_session(device_id: str,
                               request: Request,
                               session: Session = Depends(get_session)):
@@ -108,7 +111,8 @@ def get_active_device_session(device_id: str,
             return None
     return session_data
 
-@router.post("/start", response_model=Sessions, status_code=201)
+@router.post("/start", response_model=Sessions, status_code=201,
+             dependencies=[Depends(require_device_key)])
 def start_device_session(
         request_data: ServiceSessionCreate,
         request: Request,
@@ -135,6 +139,22 @@ def start_device_session(
         raise HTTPException(
             status_code=409,
             detail="This device already has an active session",
+        )
+
+    capacity = (MAX_WIFI_USERS if request_data.session_type == "wifi"
+                else MAX_CHARGING_USERS)
+    type_sessions = session.exec(
+        select(Sessions)
+        .where(Sessions.session_type == request_data.session_type)
+        .where(Sessions.session_active)
+        .where(Sessions.session_end.is_(None))
+    ).all()
+    for type_session in type_sessions:
+        expire_session_if_needed(type_session, session)
+    if sum(1 for item in type_sessions if item.session_active) >= capacity:
+        raise HTTPException(
+            status_code=409,
+            detail=f"All {request_data.session_type} slots are in use",
         )
 
     settings = session.get(SystemSettings, 1)
@@ -188,8 +208,10 @@ def load_session(id: int, session: Session, device_id: str | None = None,
 def pause_session(id: int, request: Request,
                   session: Session = Depends(get_session),
                   device_id: str | None = Query(default=None, min_length=1, max_length=100),
-                  current_admin=Depends(get_optional_admin)):
+                  current_admin=Depends(get_optional_admin),
+                  x_device_key: str | None = Header(default=None)):
     if current_admin is None:
+        require_device_key(request, x_device_key)
         enforce_rate_limit(request, "public_session_ip", limit=60)
         enforce_rate_limit(request, "public_session", device_id or "", limit=20)
     session_data = load_session(id, session, device_id, current_admin)
@@ -206,8 +228,10 @@ def pause_session(id: int, request: Request,
 def resume_session(id: int, request: Request,
                    session: Session = Depends(get_session),
                    device_id: str | None = Query(default=None, min_length=1, max_length=100),
-                   current_admin=Depends(get_optional_admin)):
+                   current_admin=Depends(get_optional_admin),
+                   x_device_key: str | None = Header(default=None)):
     if current_admin is None:
+        require_device_key(request, x_device_key)
         enforce_rate_limit(request, "public_session_ip", limit=60)
         enforce_rate_limit(request, "public_session", device_id or "", limit=20)
     session_data = load_session(id, session, device_id, current_admin)
@@ -232,8 +256,10 @@ def resume_session(id: int, request: Request,
 def end_session(id: int, request: Request,
                 session: Session = Depends(get_session),
                 device_id: str | None = Query(default=None, min_length=1, max_length=100),
-                current_admin=Depends(get_optional_admin)):
+                current_admin=Depends(get_optional_admin),
+                x_device_key: str | None = Header(default=None)):
     if current_admin is None:
+        require_device_key(request, x_device_key)
         enforce_rate_limit(request, "public_session_ip", limit=60)
         enforce_rate_limit(request, "public_session", device_id or "", limit=20)
     session_data = load_session(id, session, device_id, current_admin)

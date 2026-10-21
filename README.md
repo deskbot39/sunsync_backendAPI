@@ -28,6 +28,9 @@ A `.env` file is supported for local development. Keep it out of source control:
 SECRET_KEY=
 INITIAL_ADMIN_USERNAME=admin
 INITIAL_ADMIN_PASSWORD=
+DEVICE_API_KEY=
+MAX_WIFI_USERS=5
+MAX_CHARGING_USERS=1
 DEBUG=false
 ALLOWED_ORIGINS=http://localhost,http://localhost:8000
 ```
@@ -87,3 +90,16 @@ Topics: `<prefix>/ina219/1` (solar input) and `<prefix>/ina219/2` (second sensor
 ```
 
 Every valid message is stored in `ina219_reading`; sensor 1 (solar) and sensor 2 (battery) also add a `SystemStatus` row so the dashboard stays live. Battery level is estimated from sensor 2 voltage for a 3 x 18650 Li-ion pack in series (9.0 V = 0%, 12.6 V = 100%). Invalid or out-of-range messages are logged and dropped. Use a broker with authentication (e.g. Mosquitto) and enable TLS before exposing it publicly.
+
+## Device authentication and capacity
+
+The ESP32 must send `X-Device-Key: <DEVICE_API_KEY>` on `POST /devices/register`,
+`GET /settings/public/{id}`, `GET /sessions/device/{id}/active`,
+`POST /sessions/start`, and on pause/resume/end calls that carry no admin token.
+Requests without a valid key get `401`. `DEVICE_API_KEY` must be at least 32
+characters or the backend refuses to start. Generate one with
+`python -c "import secrets; print(secrets.token_hex(32))"`.
+
+`POST /sessions/start` returns `409` when `MAX_WIFI_USERS` (default 5) active
+wifi sessions or `MAX_CHARGING_USERS` (default 1) active charging sessions
+already exist. Expired sessions are released automatically.
