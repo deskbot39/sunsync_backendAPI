@@ -86,4 +86,4 @@ Topics: `<prefix>/ina219/1` (solar input) and `<prefix>/ina219/2` (second sensor
 {"voltage_v": 12.5, "current_a": 2.0}
 ```
 
-Every valid message is stored in `ina219_reading`; sensor 1 also adds a `SystemStatus` row so the dashboard solar data stays live. Invalid or out-of-range messages are logged and dropped. Use a broker with authentication (e.g. Mosquitto) and enable TLS before exposing it publicly.
+Every valid message is stored in `ina219_reading`; sensor 1 (solar) and sensor 2 (battery) also add a `SystemStatus` row so the dashboard stays live. Battery level is estimated from sensor 2 voltage for a 3 x 18650 Li-ion pack in series (9.0 V = 0%, 12.6 V = 100%). Invalid or out-of-range messages are logged and dropped. Use a broker with authentication (e.g. Mosquitto) and enable TLS before exposing it publicly.

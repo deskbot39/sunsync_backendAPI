@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
@@ -15,6 +15,11 @@ from models import Ina219Reading, SystemStatus
 from observability import logger
 
 SOLAR_SENSOR_ID = 1
+BATTERY_SENSOR_ID = 2
+# 3 x 18650 Li-ion cells in series (3S): 3.0 V empty to 4.2 V full per cell.
+BATTERY_CELLS = 3
+BATTERY_EMPTY_V = BATTERY_CELLS * 3.0
+BATTERY_FULL_V = BATTERY_CELLS * 4.2
 MAX_VOLTAGE_V = 40.0
 MAX_CURRENT_A = 50.0
 
@@ -41,20 +46,27 @@ def parse_ina219_message(topic: str, payload: bytes) -> tuple[int, float, float]
     return int(parts[-1]), voltage, current
 
 
+def battery_percentage(voltage: float) -> float:
+    span = BATTERY_FULL_V - BATTERY_EMPTY_V
+    return round(min(100.0, max(0.0, (voltage - BATTERY_EMPTY_V) / span * 100)), 1)
+
+
 def store_ina219_reading(sensor_id: int, voltage: float, current: float) -> None:
     with Session(engine) as session:
         session.add(Ina219Reading(
             sensor_id=sensor_id, voltage_v=voltage, current_a=current,
             power_w=round(voltage * current, 3),
         ))
-        if sensor_id == SOLAR_SENSOR_ID:
+        if sensor_id in (SOLAR_SENSOR_ID, BATTERY_SENSOR_ID):
             previous = session.exec(
                 select(SystemStatus).order_by(SystemStatus.timestamp.desc())
             ).first()
+            is_solar = sensor_id == SOLAR_SENSOR_ID
             session.add(SystemStatus(
-                battery_pct=previous.battery_pct if previous else 0,
-                solar_voltage=voltage,
-                solar_current=current,
+                battery_pct=(previous.battery_pct if previous else 0)
+                if is_solar else battery_percentage(voltage),
+                solar_voltage=voltage if is_solar else (previous.solar_voltage if previous else 0),
+                solar_current=current if is_solar else (previous.solar_current if previous else 0),
                 wifi_strength=previous.wifi_strength if previous else 0,
                 uptime_seconds=previous.uptime_seconds if previous else 0,
             ))

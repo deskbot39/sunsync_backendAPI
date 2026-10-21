@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -40,13 +40,19 @@ class Ina219MqttTests(unittest.TestCase):
             self.assertEqual(latest.solar_voltage, 12.5)
             self.assertEqual(latest.battery_pct, 80)
 
-    def test_second_sensor_does_not_create_status(self):
+    def test_battery_reading_sets_battery_percentage_for_3s_pack(self):
         mqtt_service.handle_message(
-            "sunsync/ina219/2", b'{"voltage_v": 5.0, "current_a": 1.0}')
+            "sunsync/ina219/2", b'{"voltage_v": 10.8, "current_a": 1.0}')
         with Session(self.engine) as session:
-            self.assertEqual(len(session.exec(select(SystemStatus)).all()), 1)
             self.assertEqual(session.exec(select(Ina219Reading)).one().sensor_id, 2)
+            latest = session.exec(
+                select(SystemStatus).order_by(SystemStatus.id.desc())).first()
+            self.assertEqual(latest.battery_pct, 50.0)
 
+    def test_battery_percentage_is_clamped(self):
+        self.assertEqual(mqtt_service.battery_percentage(8.0), 0.0)
+        self.assertEqual(mqtt_service.battery_percentage(12.6), 100.0)
+        self.assertEqual(mqtt_service.battery_percentage(13.0), 100.0)
     def test_invalid_messages_are_rejected(self):
         for topic, payload in [
             ("sunsync/ina219/3", b'{"voltage_v": 5, "current_a": 1}'),

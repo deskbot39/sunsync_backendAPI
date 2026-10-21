@@ -10,6 +10,10 @@ const API_BASE_URL = (typeof window.SUNSYNC_API_BASE === 'string'
     ? window.SUNSYNC_API_BASE
     : 'http://localhost:8000').replace(/\/$/, '');
 const DEVICE_API_BASE_URL = (window.SUNSYNC_DEVICE_API_BASE || '').replace(/\/$/, '');
+// 3 x 18650 Li-ion cells in series (3S): 3.0 V empty to 4.2 V full per cell.
+const BATTERY_CELLS = 3;
+const BATTERY_EMPTY_V = BATTERY_CELLS * 3.0;
+const BATTERY_FULL_V = BATTERY_CELLS * 4.2;
 const BATTERY_DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === 'battery';
 const SETTINGS_ID = 1;
 const SALES_PAGE_SIZE = 5;
@@ -444,7 +448,10 @@ function renderChargingBattery(ina219) {
         return;
     }
 
-    const percentage = Math.min(100, Math.max(0, (voltage - 3.0) / 1.2 * 100));
+    const percentage = Math.min(
+        100,
+        Math.max(0, (voltage - BATTERY_EMPTY_V) / (BATTERY_FULL_V - BATTERY_EMPTY_V) * 100)
+    );
     value.textContent = `${percentage.toFixed(0)}%`;
     voltageValue.textContent = `${voltage.toFixed(2)} V`;
     fill.style.width = `${percentage}%`;
@@ -453,10 +460,10 @@ function renderChargingBattery(ina219) {
         'aria-valuetext',
         `Estimated battery charge ${percentage.toFixed(0)} percent at ${voltage.toFixed(2)} volts`
     );
-    status.textContent = voltage < 3.0
-        ? 'Below 3.0 V minimum'
+    status.textContent = voltage < BATTERY_EMPTY_V
+        ? `Below ${BATTERY_EMPTY_V.toFixed(1)} V minimum`
         : 'Voltage-based estimate';
-    status.dataset.state = voltage < 3.0 ? 'unavailable' : 'online';
+    status.dataset.state = voltage < BATTERY_EMPTY_V ? 'unavailable' : 'online';
 }
 
 function renderDeviceSensors(data) {
