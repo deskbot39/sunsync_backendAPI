@@ -35,6 +35,12 @@ SECRET_KEY = get_env("SECRET_KEY", "") or ""
 DEBUG = str(get_env("DEBUG", "false")).strip().lower() in {"1", "true", "yes", "on"}
 INITIAL_ADMIN_USERNAME = get_env("INITIAL_ADMIN_USERNAME", "admin") or "admin"
 INITIAL_ADMIN_PASSWORD = get_env("INITIAL_ADMIN_PASSWORD")
+DEVICE_API_KEY = get_env("DEVICE_API_KEY", "") or ""
+MAX_WIFI_USERS = int(get_env("MAX_WIFI_USERS", "5") or 5)
+MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
+DEVICE_API_KEY = get_env("DEVICE_API_KEY", "") or ""
+MAX_WIFI_USERS = int(get_env("MAX_WIFI_USERS", "5") or 5)
+MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
 ALLOWED_ORIGINS = get_env(
     "ALLOWED_ORIGINS",
     "http://localhost,http://localhost:8080,http://localhost:8000,http://localhost:5500,http://127.0.0.1:5500",
@@ -46,4 +52,12 @@ def validate_security_configuration() -> None:
             SECRET_KEY == "change-me-in-production"):
         raise RuntimeError(
             "Set SECRET_KEY to a random value of at least 32 characters."
+        )
+    if len(DEVICE_API_KEY) < 32:
+        raise RuntimeError(
+            "Set DEVICE_API_KEY to a random value of at least 32 characters."
+        )
+    if len(DEVICE_API_KEY) < 32:
+        raise RuntimeError(
+            "Set DEVICE_API_KEY to a random value of at least 32 characters."
         )

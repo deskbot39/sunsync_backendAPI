@@ -7,7 +7,7 @@ Deployment-only repository for the Sun Sync FastAPI backend.
 ```sh
 fly launch --no-deploy --copy-config      # pick/confirm the app name
 fly volumes create sunsync_data --size 1 --region sin
-fly secrets set SECRET_KEY=<64 hex chars> INITIAL_ADMIN_PASSWORD=<12+ chars>
+fly secrets set SECRET_KEY=<64 hex chars> DEVICE_API_KEY=<64 hex chars> INITIAL_ADMIN_PASSWORD=<12+ chars>
 fly deploy
 ```
 
@@ -22,3 +22,8 @@ Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
 - Keep a single machine: SQLite and the in-process rate limiter are not shared.
 - Set `ALLOWED_ORIGINS` in `fly.toml` to the origins of your frontend.
 - Health check: `GET /health`.
+- The ESP32 must send the `X-Device-Key: <DEVICE_API_KEY>` header on device
+  endpoints (`/devices/register`, `/settings/public/{id}`, `/sessions/start`,
+  `/sessions/device/{id}/active`, and session pause/resume/end).
+- Capacity: at most `MAX_WIFI_USERS` (5) active wifi sessions and
+  `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`.
