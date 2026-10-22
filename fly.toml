@@ -10,7 +10,7 @@ primary_region = "sin"
   MQTT_PORT = "8883"
   MQTT_TLS = "true"
   MQTT_TOPIC_PREFIX = "sunsync"
-  ALLOWED_ORIGINS = "https://sunsync-backend.fly.dev"
+  ALLOWED_ORIGINS = "https://sunsync-backend.fly.dev,http://192.168.4.1"
 
 [mounts]
   source = "sunsync_data"
