@@ -1,5 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
 import logging
@@ -17,7 +20,7 @@ from db import (
 )
 from mqtt_service import start_mqtt, stop_mqtt
 from observability import logger
-from routers import auth, backups, devices, overview, parameters, sales, settings
+from routers import auth, backups, devices, overview, parameters, sales, settings, telemetry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,6 +59,16 @@ async def log_http_request(request: Request, call_next):
         response = await call_next(request)
         status_code = response.status_code
         response.headers["X-Request-ID"] = request_id
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+        )
+        if request.url.path.endswith((".html", ".js", ".css")):
+            response.headers["Cache-Control"] = "no-cache"
         return response
     finally:
         log_level = (
@@ -94,10 +107,11 @@ app.include_router(sales.router)
 app.include_router(parameters.router)
 app.include_router(auth.router)
 app.include_router(devices.router)
+app.include_router(telemetry.router)
 
-@app.get("/")
-async def index() -> dict[str, str]:
-    return {"message": "Sun Sync Backend is running!"}
+@app.get("/", include_in_schema=False)
+async def index() -> RedirectResponse:
+    return RedirectResponse("/login.html")
 
 @app.get("/health")
 async def health_check() -> dict[str, str | bool]:
@@ -109,3 +123,7 @@ async def health_check() -> dict[str, str | bool]:
 
 app.state.secret_key = SECRET_KEY
 app.state.debug = DEBUG
+
+WEB_DIRECTORY = Path(__file__).parent / "web"
+# Mounted last so API routes always win; the admin pages are served from the same origin.
+app.mount("/", StaticFiles(directory=WEB_DIRECTORY, html=True), name="web")

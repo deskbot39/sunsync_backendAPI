@@ -20,12 +20,19 @@ Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
   On first start the database is seeded from `clean.db` (admin user plus default
   wifi/charging rates). The default `admin123` password is rotated to
   `INITIAL_ADMIN_PASSWORD` on startup.
-- Keep a single machine: SQLite and the in-process rate limiter are not shared.
-- Set `ALLOWED_ORIGINS` in `fly.toml` to the origins of your frontend.
+- Keep a single machine: SQLite, the in-process rate limiter and the live kiosk
+  snapshot (`/devices/live`) are not shared between machines.
+- The admin pages (`/login.html`, `/dashboard.html`, assets under `/resources`) are
+  served from `web/` by the backend itself, so the dashboard and API share one origin.
+  `ALLOWED_ORIGINS` is only needed for other frontends.
 - Health check: `GET /health`.
 - The ESP32 must send the `X-Device-Key: <DEVICE_API_KEY>` header on device
-  endpoints (`/devices/register`, `/settings/public/{id}`, `/sessions/start`,
-  `/sessions/device/{id}/active`, and session pause/resume/end).
+  endpoints (`/devices/register`, `/devices/telemetry`, `/settings/public/{id}`,
+  `/sessions/start`, `/sessions/device/{id}/active`, and session pause/resume/end).
+- `POST /devices/telemetry` is sent by the kiosk every ~15 s with its uptime, upstream
+  state and connected Wi-Fi clients. The admin dashboard reads the latest snapshot from
+  `GET /devices/live` (kept in memory; the kiosk counts as offline after 45 s). The reply
+  lists the active session ids so the kiosk ends sessions an admin stopped here.
 - Capacity: at most `MAX_WIFI_USERS` (5) active wifi sessions and
   `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`.
 
