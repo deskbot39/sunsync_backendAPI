@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from db import get_session
 from models import (
     Devices,
+    Ina219Reading,
     OverviewSummaryResponse,
     SolarSummaryResponse,
     SystemHealthResponse,
@@ -29,7 +30,7 @@ def get_solar_summary(session: Session = Depends(get_session),
                       current_admin=Depends(get_current_admin)):
     statuses = session.exec(
         select(SystemStatus)
-        .order_by(SystemStatus.timestamp.desc())
+        .order_by(SystemStatus.id.desc())
         .limit(24)
     ).all()
     if not statuses:
@@ -46,12 +47,40 @@ def get_solar_summary(session: Session = Depends(get_session),
         history_labels=[item.timestamp.isoformat() for item in statuses],
     )
 
+SENSOR_FRESH_SECONDS = 15
+
+@router.get("/sensors")
+def get_sensors(session: Session = Depends(get_session),
+                current_admin=Depends(get_current_admin)):
+    def latest(sensor_id: int) -> dict:
+        reading = session.exec(
+            select(Ina219Reading)
+            .where(Ina219Reading.sensor_id == sensor_id)
+            .order_by(Ina219Reading.id.desc())
+        ).first()
+        if not reading:
+            return {"available": False}
+        timestamp = reading.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+        return {
+            "available": age <= SENSOR_FRESH_SECONDS,
+            "bus_voltage_v": reading.voltage_v,
+            "current_ma": reading.current_a * 1000,
+            "power_w": reading.power_w,
+            "timestamp": timestamp.isoformat(),
+        }
+
+    # Sensor 1 is the solar panel and sensor 2 is the battery (see mqtt_service.py).
+    return {"ina219": latest(2), "ina219_panel": latest(1)}
+
 @router.get("/overview-summary", response_model=OverviewSummaryResponse)
 def get_overview_summary(session: Session = Depends(get_session),
                          current_admin=Depends(get_current_admin)):
     settings = session.exec(select(SystemSettings)).first()
     latest_status = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).first()
     if not settings or not latest_status:
         raise HTTPException(status_code=404, detail="Overview data not found")
@@ -79,7 +108,7 @@ def get_overview_summary(session: Session = Depends(get_session),
 def get_system_health(session: Session = Depends(get_session),
                       current_admin=Depends(get_current_admin)):
     latest = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).first()
     if not latest:
         raise HTTPException(status_code=404, detail="System health not found")
@@ -95,7 +124,7 @@ def export_business_data(session: Session = Depends(get_session),
         select(Transactions).order_by(Transactions.timestamp.desc())
     ).all()
     statuses = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).all()
     latest_status = statuses[0] if statuses else None
     exported_at = datetime.now(timezone.utc).isoformat()

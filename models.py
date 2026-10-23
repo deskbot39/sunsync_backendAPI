@@ -61,11 +61,20 @@ class BackupStatusResponse(SQLModel):
 class BackupRestoreRequest(SQLModel):
     filename: str = Field(min_length=1, max_length=255)
 
+class ChargingSessionResponse(SQLModel):
+    id: int | None = None
+    device_id: str
+    session_active: bool
+    duration_seconds: int | None
+    session_start: datetime
+
 class ChargingSummaryResponse(SQLModel):
     used_ports: int
     inactive_ports: int
+    total_sessions: int = 0
     current_load_watts: float
     average_session_seconds: int
+    sessions: list[ChargingSessionResponse] = []
 
 class SolarSummaryResponse(SQLModel):
     current_output_watts: float
@@ -91,6 +100,7 @@ class OverviewSummaryResponse(SQLModel):
     last_status_update: datetime
 
 class WifiClientResponse(SQLModel):
+    id: int | None = None
     device_id: str
     session_target: str
     session_active: bool

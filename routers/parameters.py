@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlmodel import Session, select
 from db import get_session
 from models import (
+    ChargingSessionResponse,
     ChargingSummaryResponse,
     Devices,
     ServiceSessionCreate,
     Sessions,
     SystemSettings,
+    Transactions,
     WifiClientResponse,
     WifiSummaryResponse,
 )
@@ -42,20 +45,37 @@ def expire_session_if_needed(session_data: Sessions, session: Session) -> None:
 def get_charging_summary(session: Session = Depends(get_session),
                          current_admin=Depends(get_current_admin)):
     charging_sessions = session.exec(
-        select(Sessions).where(Sessions.session_type == "charging")
+        select(Sessions)
+        .where(Sessions.session_type == "charging")
+        .order_by(Sessions.session_start.desc())
     ).all()
+    for item in charging_sessions:
+        expire_session_if_needed(item, session)
     used_sessions = [item for item in charging_sessions if item.session_active]
+    total_ports = MAX_CHARGING_USERS
+    used_ports = min(len(used_sessions), total_ports)
     durations = [
         item.duration_seconds for item in charging_sessions
         if item.duration_seconds is not None
     ]
     return ChargingSummaryResponse(
-        used_ports=len(used_sessions),
-        inactive_ports=len(charging_sessions) - len(used_sessions),
+        used_ports=used_ports,
+        inactive_ports=total_ports - used_ports,
+        total_sessions=len(charging_sessions),
         current_load_watts=sum(
             item.port_output_watts or 0 for item in used_sessions
         ),
         average_session_seconds=(sum(durations) // len(durations) if durations else 0),
+        sessions=[
+            ChargingSessionResponse(
+                id=item.id,
+                device_id=item.device_id,
+                session_active=item.session_active,
+                duration_seconds=item.duration_seconds,
+                session_start=item.session_start,
+            )
+            for item in charging_sessions[:100]
+        ],
     )
 
 @router.get("/wifi-summary", response_model=WifiSummaryResponse)
@@ -66,12 +86,15 @@ def get_wifi_summary(session: Session = Depends(get_session),
         .where(Sessions.session_type == "wifi")
         .order_by(Sessions.session_start.desc())
     ).all()
+    for item in wifi_sessions:
+        expire_session_if_needed(item, session)
     return WifiSummaryResponse(
         active_clients=sum(1 for item in wifi_sessions if item.session_active),
         total_sessions=len(wifi_sessions),
         total_download_kb=sum(item.data_download_kb or 0 for item in wifi_sessions),
         clients=[
             WifiClientResponse(
+                id=item.id,
                 device_id=item.device_id,
                 session_target=item.session_target,
                 session_active=item.session_active,
@@ -188,6 +211,14 @@ def start_device_session(
         expires_at=now + timedelta(seconds=duration_seconds),
     )
     session.add(session_data)
+    # One credit is one peso coin pulse; record the sale together with the session.
+    session.add(Transactions(
+        device_id=request_data.device_id,
+        coin_denomination=1,
+        coins_count=request_data.credits,
+        total_amount=Decimal(request_data.credits),
+        transaction_type=request_data.session_type,
+    ))
     session.commit()
     session.refresh(session_data)
     return session_data
@@ -251,6 +282,60 @@ def resume_session(id: int, request: Request,
     session.commit()
     session.refresh(session_data)
     return session_data
+
+@router.patch("/end-all")
+def end_all_sessions(session: Session = Depends(get_session),
+                     current_admin=Depends(get_current_admin)):
+    return end_active_sessions(session, None)
+
+@router.patch("/end-all/{session_type}")
+def end_all_sessions_of_type(session_type: str,
+                             session: Session = Depends(get_session),
+                             current_admin=Depends(get_current_admin)):
+    if session_type not in ("wifi", "charging"):
+        raise HTTPException(status_code=404, detail="Unknown session type")
+    return end_active_sessions(session, session_type)
+
+def end_active_sessions(session: Session, session_type: str | None):
+    now = datetime.now(timezone.utc)
+    query = (
+        select(Sessions)
+        .where(Sessions.session_active)
+        .where(Sessions.session_end.is_(None))
+    )
+    if session_type:
+        query = query.where(Sessions.session_type == session_type)
+    active = session.exec(query).all()
+    for item in active:
+        if item.paused_at is not None:
+            item.paused_seconds += max(
+                0, int((now - as_utc(item.paused_at)).total_seconds())
+            )
+            item.paused_at = None
+        item.session_active = False
+        item.session_end = now
+        session.add(item)
+    session.commit()
+    return {"ended": len(active)}
+
+@router.patch("/{id}/usage")
+def report_session_usage(id: int, request: Request,
+                         data_download_kb: float = Query(ge=0, le=100_000_000),
+                         session: Session = Depends(get_session),
+                         device_id: str | None = Query(default=None, min_length=1, max_length=100),
+                         current_admin=Depends(get_optional_admin),
+                         x_device_key: str | None = Header(default=None)):
+    if current_admin is None:
+        require_device_key(request, x_device_key)
+        enforce_rate_limit(request, "session_usage", str(id), limit=120)
+    session_data = session.get(Sessions, id)
+    if not session_data or (current_admin is None and session_data.device_id != device_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Usage only grows, so a late or repeated report cannot lower the total.
+    session_data.data_download_kb = max(session_data.data_download_kb or 0.0, data_download_kb)
+    session.add(session_data)
+    session.commit()
+    return {"data_download_kb": session_data.data_download_kb}
 
 @router.patch("/{id}/end", response_model=Sessions)
 def end_session(id: int, request: Request,

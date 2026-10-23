@@ -24,13 +24,17 @@ SEED_DB = Path(__file__).resolve().parent / "clean.db"
 if not Path(sqlite_file_name).exists() and SEED_DB.exists():
     shutil.copyfile(SEED_DB, sqlite_file_name)
 sqlite_url = f"sqlite:///{sqlite_file_name}"
-engine = create_engine(sqlite_url, echo=False)
+engine = create_engine(sqlite_url, echo=False, connect_args={"timeout": 20})
 ph_time = datetime.now(timezone.utc)
 password_hash = PasswordHash.recommended()
 
 @event.listens_for(engine, "connect")
 def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     dbapi_connection.execute("PRAGMA foreign_keys=ON")
+    # WAL lets sensor writes and API requests overlap instead of blocking each other.
+    dbapi_connection.execute("PRAGMA journal_mode=WAL")
+    dbapi_connection.execute("PRAGMA synchronous=NORMAL")
+    dbapi_connection.execute("PRAGMA busy_timeout=20000")
 
 def migrate_device_foreign_keys():
     inspector = inspect(engine)

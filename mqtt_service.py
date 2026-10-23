@@ -17,9 +17,8 @@ from observability import logger
 SOLAR_SENSOR_ID = 1
 BATTERY_SENSOR_ID = 2
 # 3 x 18650 Li-ion cells in series (3S): 3.0 V empty to 4.2 V full per cell.
-BATTERY_CELLS = 3
-BATTERY_EMPTY_V = BATTERY_CELLS * 3.0
-BATTERY_FULL_V = BATTERY_CELLS * 4.2
+BATTERY_EMPTY_V = 0.0
+BATTERY_FULL_V = 3.6
 MAX_VOLTAGE_V = 40.0
 MAX_CURRENT_A = 50.0
 
@@ -53,14 +52,17 @@ def battery_percentage(voltage: float) -> float:
 
 def store_ina219_reading(sensor_id: int, voltage: float, current: float) -> None:
     with Session(engine) as session:
+        previous = None
+        if sensor_id in (SOLAR_SENSOR_ID, BATTERY_SENSOR_ID):
+            # Newest row by primary key: no table scan, and read before taking the write lock.
+            previous = session.exec(
+                select(SystemStatus).order_by(SystemStatus.id.desc()).limit(1)
+            ).first()
         session.add(Ina219Reading(
             sensor_id=sensor_id, voltage_v=voltage, current_a=current,
             power_w=round(voltage * current, 3),
         ))
         if sensor_id in (SOLAR_SENSOR_ID, BATTERY_SENSOR_ID):
-            previous = session.exec(
-                select(SystemStatus).order_by(SystemStatus.timestamp.desc())
-            ).first()
             is_solar = sensor_id == SOLAR_SENSOR_ID
             session.add(SystemStatus(
                 battery_pct=(previous.battery_pct if previous else 0)
