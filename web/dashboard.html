@@ -262,11 +262,32 @@
                         </div>
                         <div class="card wifi-summary-card">
                             <div class="card-head">
-                                <span>Data Downloaded</span>
+                                <span>Data Downloaded (This Month)</span>
                             </div>
                             <div class="card-body">
                                 <div class="card-val" id="wifi-data-value">--</div>
-                                <div class="card-sub">Across Wi-Fi sessions</div>
+                                <div class="card-sub">Downloaded by Wi-Fi users this month</div>
+                            </div>
+                        </div>
+                        <div class="card wifi-summary-card">
+                            <div class="card-head">
+                                <span>Average Downloaded</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="card-val" id="wifi-avg-value">--</div>
+                                <div class="card-sub" id="wifi-avg-sub">Per session this month</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bot-cont">
+                        <div class="card solar-chart-card">
+                            <div class="card-head">
+                                <span>Data Downloaded (This Month)</span>
+                            </div>
+                            <div class="card-body solar-chart-body">
+                                <div class="solar-chart-wrap">
+                                    <canvas id="wifi-data-chart" aria-label="Data downloaded per day this month in megabytes"></canvas>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -515,13 +536,15 @@
                 <button type="button" class="settings-close-button" id="close-settings" aria-label="Close settings">Close</button>
             </div>
             <div class="settings-form-grid">
-                <label>Wi-Fi name<input name="wifi_ssid" type="text" minlength="1" maxlength="64" required></label>
-                <label>New Wi-Fi password<input name="wifi_password" type="password" minlength="8" maxlength="128" placeholder="Leave blank to keep current"></label>
                 <label>Wi-Fi rate per coin (seconds)<input name="wifi_rate_per_coin" type="number" min="0" step="1" required></label>
                 <label>Charging rate per coin (same as Wi-Fi)<input name="charging_rate_per_coin" type="number" min="0" step="1" readonly required></label>
-                <label>Battery cutoff (%)<input name="solar_battery_min_cutoff" type="number" min="0" max="100" step="0.1" required></label>
-                <label>Maximum load (W)<input name="max_load_watts" type="number" min="0.1" step="0.1" required></label>
             </div>
+            <section class="backup-recovery" aria-labelledby="router-power-title">
+                <h3 id="router-power-title">Router Power</h3>
+                <p>Switch the router's power relay. Turning it off cuts internet for everyone and the kiosk cannot hear the backend meanwhile, so it switches the router back on by itself after 10 minutes.</p>
+                <button type="button" class="settings-recovery-button" id="router-power-toggle" disabled>Loading router state...</button>
+                <p class="settings-form-status" id="router-power-status" role="status" aria-live="polite"></p>
+            </section>
             <section class="backup-recovery" aria-labelledby="backup-recovery-title">
                 <h3 id="backup-recovery-title">Recover Database</h3>
                 <p>Select a backup to restore the system data. A safety backup is created automatically before recovery.</p>

@@ -163,12 +163,8 @@ def create_initial_settings():
         existing_settings = session.exec(select(SystemSettings)).first()
         if existing_settings is None:
             session.add(SystemSettings(
-                wifi_ssid="SunSync",
-                wifi_password="SunSync123",
                 wifi_rate_per_coin=180,
                 charging_rate_per_coin=180,
-                solar_battery_min_cutoff=20.0,
-                max_load_watts=40.0
             ))
 
             session.commit()

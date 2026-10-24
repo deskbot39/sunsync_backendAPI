@@ -20,6 +20,7 @@ const BATTERY_EMPTY_V = 0.0;
 const BATTERY_FULL_V = 3.6;
 const BATTERY_DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === 'battery';
 const SETTINGS_ID = 1;
+let routerIsOff = false;
 const SALES_PAGE_SIZE = 5;
 const WIFI_PAGE_SIZE = 5;
 const WIFI_AP_PAGE_SIZE = 3;
@@ -38,6 +39,7 @@ let overviewActivity = [];
 let overviewPage = 1;
 let solarChart;
 let salesChart;
+let wifiDataChart;
 let sensorRequestFailed = false;
 let availableBackups = [];
 let systemUptimeAtResponse = null;
@@ -305,7 +307,6 @@ async function loadSettingsForm() {
         if (field) field.value = value;
     });
     chargingRateInput.value = wifiRateInput.value;
-    settingsForm.elements.namedItem('wifi_password').value = '';
     settingsStatus.textContent = '';
 }
 
@@ -313,8 +314,57 @@ function clearSettingsStatus() {
     settingsStatus.textContent = '';
 }
 
+function renderRouterPower(state) {
+    const button = document.querySelector('#router-power-toggle');
+    routerIsOff = state.power === 'off';
+    button.disabled = false;
+    button.textContent = routerIsOff ? 'Turn Router ON' : 'Turn Router OFF';
+    document.querySelector('#router-power-status').textContent = routerIsOff
+        ? `Router is OFF. It switches back on automatically in about ${Math.ceil(state.off_seconds_remaining / 60)} min.`
+        : 'Router is ON.';
+}
+
+async function loadRouterPower() {
+    const response = await fetch(`${API_BASE_URL}/devices/router`, {
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+    });
+    if (!response.ok) throw new Error(`Router state request failed (${response.status})`);
+    renderRouterPower(await response.json());
+}
+
+document.querySelector('#router-power-toggle').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const turnOff = !routerIsOff;
+    if (turnOff && !window.confirm('Turn the router OFF? Everyone loses internet until it is turned back on (automatically after 10 minutes).')) {
+        return;
+    }
+    button.disabled = true;
+    const status = document.querySelector('#router-power-status');
+    try {
+        const response = await fetch(`${API_BASE_URL}/devices/router`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${getAccessToken()}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ power: turnOff ? 'off' : 'on' }),
+        });
+        if (!response.ok) throw new Error(`Router command failed (${response.status})`);
+        renderRouterPower(await response.json());
+        status.textContent += ' The kiosk applies it within about 15 seconds.';
+    } catch (error) {
+        console.error(error);
+        status.textContent = error.message;
+        button.disabled = false;
+    }
+});
+
 document.querySelector('#open-settings').addEventListener('click', () => {
     settingsDialog.showModal();
+    loadRouterPower().catch(error => {
+        console.error(error);
+        document.querySelector('#router-power-status').textContent = 'Unable to load router state.';
+    });
     loadSettingsForm().catch(error => {
         console.error(error);
         settingsStatus.textContent = 'Unable to load settings.';
@@ -344,14 +394,9 @@ settingsForm.addEventListener('submit', async event => {
     settingsStatus.textContent = 'Saving settings...';
     const formData = new FormData(settingsForm);
     const updates = {
-        wifi_ssid: formData.get('wifi_ssid'),
         wifi_rate_per_coin: Number(formData.get('wifi_rate_per_coin')),
         charging_rate_per_coin: Number(formData.get('charging_rate_per_coin')),
-        solar_battery_min_cutoff: Number(formData.get('solar_battery_min_cutoff')),
-        max_load_watts: Number(formData.get('max_load_watts')),
     };
-    const wifiPassword = formData.get('wifi_password');
-    if (wifiPassword) updates.wifi_password = wifiPassword;
 
     try {
         const response = await fetch(`${API_BASE_URL}/settings/${SETTINGS_ID}`, {
@@ -662,10 +707,56 @@ async function loadSolarSummary() {
     renderSolarSummary(await response.json());
 }
 
+function formatDataSize(kb) {
+    const mb = Number(kb) / 1024;
+    return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+function renderWifiUsage(usage) {
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daily = new Array(daysInMonth).fill(0);
+    let sessions = 0;
+    usage.forEach(point => {
+        const when = parseServerTime(point.session_start);
+        if (when.getFullYear() !== now.getFullYear() || when.getMonth() !== now.getMonth()) return;
+        daily[when.getDate() - 1] += Number(point.data_download_kb) / 1024;
+        sessions += 1;
+    });
+    const totalMb = daily.reduce((sum, value) => sum + value, 0);
+    document.querySelector('#wifi-data-value').textContent = formatDataSize(totalMb * 1024);
+    document.querySelector('#wifi-avg-value').textContent =
+        sessions ? formatDataSize((totalMb * 1024) / sessions) : '0.0 MB';
+    document.querySelector('#wifi-avg-sub').textContent =
+        `Per session (${sessions} this month), ${formatDataSize((totalMb * 1024) / now.getDate())}/day`;
+
+    const canvas = document.querySelector('#wifi-data-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (wifiDataChart) wifiDataChart.destroy();
+    wifiDataChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: daily.map((_, index) => String(index + 1)),
+            datasets: [{
+                label: 'Downloaded (MB)',
+                data: daily.map(value => Number(value.toFixed(2))),
+                borderColor: '#0ea5e9',
+                backgroundColor: 'rgba(14, 165, 233, 0.45)',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } },
+            plugins: { legend: { position: 'bottom' } },
+        },
+    });
+}
+
 function renderWifiSummary(summary) {
     document.querySelector('#wifi-total-value').textContent = summary.total_sessions;
-    document.querySelector('#wifi-data-value').textContent =
-        `${(Number(summary.total_download_kb) / 1024).toFixed(1)} MB`;
+    renderWifiUsage(summary.usage || []);
 
     wifiClients = summary.clients;
     renderWifiTable();
@@ -1220,6 +1311,11 @@ if (BATTERY_DEMO_MODE) {
     systemHealthPollTimer = window.setInterval(refreshSystemHealth, 10000);
     window.setInterval(renderSystemUptime, 1000);
     loadBackupStatus().catch(error => console.error(error));
+    window.setInterval(() => {
+        if (document.hidden) return;
+        [loadSales, loadChargingSummary, loadSolarSummary, loadWifiSummary].forEach(load =>
+            load().catch(error => console.error(error)));
+    }, 15000);
 }
 
 refreshDeviceSensors();

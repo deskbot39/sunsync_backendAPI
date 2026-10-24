@@ -156,16 +156,10 @@ def export_business_data(session: Session = Depends(get_session),
 
     if settings:
         recorded_at = settings.date_updated.isoformat()
-        add_row("System Settings", settings.id, "Wi-Fi Name", settings.wifi_ssid,
-                recorded_at=recorded_at)
         add_row("System Settings", settings.id, "Wi-Fi Rate", settings.wifi_rate_per_coin,
                 "PHP/coin", recorded_at)
         add_row("System Settings", settings.id, "Charging Rate", settings.charging_rate_per_coin,
                 "PHP/coin", recorded_at)
-        add_row("System Settings", settings.id, "Battery Cutoff", settings.solar_battery_min_cutoff,
-                "%", recorded_at)
-        add_row("System Settings", settings.id, "Maximum Load", settings.max_load_watts,
-                "W", recorded_at)
 
     for item in devices:
         recorded_at = item.last_seen.isoformat()

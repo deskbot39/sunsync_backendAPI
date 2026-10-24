@@ -9,11 +9,13 @@ from models import (
     ChargingSummaryResponse,
     Devices,
     ServiceSessionCreate,
+    ForfeitCreate,
     Sessions,
     SystemSettings,
     Transactions,
     WifiClientResponse,
     WifiSummaryResponse,
+    WifiUsagePoint,
 )
 from config import MAX_CHARGING_USERS, MAX_WIFI_USERS
 from device_auth import require_device_key
@@ -103,6 +105,12 @@ def get_wifi_summary(session: Session = Depends(get_session),
             )
             for item in wifi_sessions[:100]
         ],
+        usage=[
+            WifiUsagePoint(session_start=item.session_start,
+                           data_download_kb=item.data_download_kb or 0)
+            for item in wifi_sessions
+            if item.session_start and (item.data_download_kb or 0) > 0
+        ],
     )
 
 @router.get("/{id}", response_model=Sessions)
@@ -133,6 +141,28 @@ def get_active_device_session(device_id: str,
         if not session_data.session_active:
             return None
     return session_data
+
+@router.post("/forfeit", status_code=201, dependencies=[Depends(require_device_key)])
+def forfeit_credits(request_data: ForfeitCreate, request: Request,
+                    session: Session = Depends(get_session)):
+    enforce_rate_limit(request, "forfeit_credits", request_data.device_id, limit=10)
+    enforce_rate_limit(request, "forfeit_credits_ip", limit=30)
+    device = session.exec(
+        select(Devices).where(Devices.device_id == request_data.device_id)
+    ).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device is not registered")
+    # Coins were already collected, so unspent credits are recorded as revenue.
+    record = Transactions(
+        device_id=request_data.device_id,
+        coin_denomination=1,
+        coins_count=request_data.credits,
+        total_amount=Decimal(request_data.credits),
+        transaction_type="forfeited",
+    )
+    session.add(record)
+    session.commit()
+    return {"forfeited": request_data.credits}
 
 @router.post("/start", response_model=Sessions, status_code=201,
              dependencies=[Depends(require_device_key)])

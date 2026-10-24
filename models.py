@@ -7,20 +7,13 @@ from sqlmodel import SQLModel, Field, Column, DateTime
 class SystemSettingsUpdate(SQLModel):
     model_config = ConfigDict(extra="forbid")
 
-    wifi_ssid: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    wifi_password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     wifi_rate_per_coin: Optional[int] = Field(default=None, ge=0)
     charging_rate_per_coin: Optional[int] = Field(default=None, ge=0)
-    solar_battery_min_cutoff: Optional[float] = Field(default=None, ge=0, le=100)
-    max_load_watts: Optional[float] = Field(default=None, gt=0)
 
 class SystemSettingsResponse(SQLModel):
     id: int
-    wifi_ssid: str
     wifi_rate_per_coin: int
     charging_rate_per_coin: int
-    solar_battery_min_cutoff: float
-    max_load_watts: float
     date_updated: datetime
 
 class PublicRatesResponse(SQLModel):
@@ -107,17 +100,26 @@ class WifiClientResponse(SQLModel):
     data_download_kb: float
     duration_seconds: int | None
 
+class WifiUsagePoint(SQLModel):
+    session_start: datetime
+    data_download_kb: float
+
 class WifiSummaryResponse(SQLModel):
     active_clients: int
     total_sessions: int
     total_download_kb: float
     clients: list[WifiClientResponse]
+    usage: list[WifiUsagePoint] = []
 
 class TransactionCreate(SQLModel):
     device_id: str = Field(min_length=1, max_length=100)
     coin_denomination: Literal[1, 5, 10, 20]
     coins_count: int = Field(gt=0)
     transaction_type: str = Field(min_length=1, max_length=50)
+
+class ForfeitCreate(SQLModel):
+    device_id: str = Field(min_length=1, max_length=100)
+    credits: int = Field(gt=0, le=10_000)
 
 class AdminUpdate(SQLModel):
     model_config = ConfigDict(extra="forbid")
@@ -128,12 +130,8 @@ class AdminUpdate(SQLModel):
 
 class SystemSettings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    wifi_ssid: str = Field(default="SunSync", nullable=False)
-    wifi_password: str = Field(default="SunSync123", nullable=False)
     wifi_rate_per_coin: int = Field(default=180, nullable=False)
     charging_rate_per_coin: int = Field(default=180, nullable=False)
-    solar_battery_min_cutoff: float = Field(default=20.0, nullable=False)
-    max_load_watts: float = Field(default=40.0, nullable=False)
     date_updated: datetime = Field(sa_column=Column(DateTime(timezone=True)),
         default_factory=lambda: datetime.now(timezone.utc))
 
