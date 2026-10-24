@@ -37,6 +37,7 @@ let chargingChart;
 let overviewActivity = [];
 let overviewPage = 1;
 let solarChart;
+let salesChart;
 let sensorRequestFailed = false;
 let availableBackups = [];
 let systemUptimeAtResponse = null;
@@ -163,11 +164,17 @@ function formatCurrency(amount) {
     }).format(Number(amount));
 }
 
+// The API stores UTC but SQLite drops the zone, so a bare timestamp must be read as UTC.
+function parseServerTime(timestamp) {
+    const text = String(timestamp);
+    return new Date(/(Z|[+-]\d\d:?\d\d)$/.test(text) ? text : `${text}Z`);
+}
+
 function formatTransactionTime(timestamp) {
     return new Intl.DateTimeFormat([], {
         dateStyle: 'short',
         timeStyle: 'short',
-    }).format(new Date(timestamp));
+    }).format(parseServerTime(timestamp));
 }
 
 function renderSalesSummary(transactions) {
@@ -176,11 +183,11 @@ function renderSalesSummary(transactions) {
     const month = now.getMonth();
     const year = now.getFullYear();
     const todayTotal = transactions
-        .filter(transaction => new Date(transaction.timestamp).toDateString() === today)
+        .filter(transaction => parseServerTime(transaction.timestamp).toDateString() === today)
         .reduce((sum, transaction) => sum + Number(transaction.total_amount), 0);
     const monthTotal = transactions
         .filter(transaction => {
-            const timestamp = new Date(transaction.timestamp);
+            const timestamp = parseServerTime(transaction.timestamp);
             return timestamp.getMonth() === month && timestamp.getFullYear() === year;
         })
         .reduce((sum, transaction) => sum + Number(transaction.total_amount), 0);
@@ -219,14 +226,55 @@ function renderSalesTable() {
     document.querySelector('#sales-next').disabled = salesPage === totalPages;
 }
 
+function renderSalesChart(transactions) {
+    const canvas = document.querySelector('#sales-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const days = [];
+    for (let offset = 6; offset >= 0; --offset) {
+        const day = new Date();
+        day.setHours(0, 0, 0, 0);
+        day.setDate(day.getDate() - offset);
+        days.push(day);
+    }
+    const totals = days.map(() => 0);
+    transactions.forEach(transaction => {
+        const when = parseServerTime(transaction.timestamp).toDateString();
+        const index = days.findIndex(day => day.toDateString() === when);
+        if (index >= 0) totals[index] += Number(transaction.total_amount);
+    });
+    if (salesChart) salesChart.destroy();
+    salesChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: days.map(day => new Intl.DateTimeFormat([], {
+                month: 'short', day: 'numeric',
+            }).format(day)),
+            datasets: [{
+                label: 'Sales (PHP)',
+                data: totals,
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.45)',
+                borderWidth: 1,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } },
+            plugins: { legend: { position: 'bottom' } },
+        },
+    });
+}
+
 function renderSales(transactions) {
     salesTransactions = transactions;
     renderSalesSummary(transactions);
+    renderSalesChart(transactions);
     renderSalesTable();
 }
 
 async function loadSales() {
-    const response = await fetch(`${API_BASE_URL}/transactions/?limit=100`, {
+    const response = await fetch(`${API_BASE_URL}/transactions/?limit=500`, {
         headers: { Authorization: `Bearer ${getAccessToken()}` },
     });
     if (response.status === 401) {
@@ -390,8 +438,7 @@ function renderChargingTable() {
     } else {
         const start = (chargingPage - 1) * WIFI_PAGE_SIZE;
         chargingSessions.slice(start, start + WIFI_PAGE_SIZE).forEach(item => {
-            const started = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(item.session_start)
-                ? item.session_start : `${item.session_start}Z`);
+            const started = parseServerTime(item.session_start);
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td data-label="Device">${item.device_id}</td>
@@ -433,7 +480,7 @@ function renderSolarSummary(summary) {
         type: 'line',
         data: {
             labels: summary.history_labels.map(label =>
-                new Intl.DateTimeFormat([], { timeStyle: 'short' }).format(new Date(label))
+                new Intl.DateTimeFormat([], { timeStyle: 'short' }).format(parseServerTime(label))
             ),
             datasets: [{
                 label: 'Output (W)',
