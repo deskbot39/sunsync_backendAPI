@@ -65,7 +65,7 @@ async def log_http_request(request: Request, call_next):
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "default-src 'self'; style-src 'self'; "
             "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
         )
         if request.url.path.endswith((".html", ".js", ".css")):
