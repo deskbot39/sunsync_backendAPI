@@ -19,7 +19,7 @@ from models import (
     WifiSummaryResponse,
     WifiUsagePoint,
 )
-from config import MAX_CHARGING_USERS, MAX_WIFI_USERS
+from config import MAX_CHARGING_USERS, MAX_PAUSE_SECONDS, MAX_WIFI_USERS
 from device_auth import require_device_key
 from routers.auth import get_current_admin, get_optional_admin
 from rate_limits import enforce_rate_limit
@@ -36,11 +36,27 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 def expire_session_if_needed(session_data: Sessions, session: Session) -> None:
-    if (session_data.session_active and session_data.paused_at is None and
-            session_data.expires_at is not None and
-            datetime.now(timezone.utc) >= as_utc(session_data.expires_at)):
+    if not session_data.session_active:
+        return
+    now = datetime.now(timezone.utc)
+    if (session_data.paused_at is None and session_data.expires_at is not None and
+            now >= as_utc(session_data.expires_at)):
         session_data.session_active = False
         session_data.session_end = session_data.expires_at
+        session.add(session_data)
+        session.commit()
+        session.refresh(session_data)
+        return
+    # A paused session holds a Wi-Fi/charging slot open with no running clock. Cap how long
+    # it can stay paused so a forgotten or abused pause cannot block other customers forever.
+    if (session_data.paused_at is not None and
+            (now - as_utc(session_data.paused_at)).total_seconds() >= MAX_PAUSE_SECONDS):
+        session_data.paused_seconds += max(
+            0, int((now - as_utc(session_data.paused_at)).total_seconds())
+        )
+        session_data.paused_at = None
+        session_data.session_active = False
+        session_data.session_end = now
         session.add(session_data)
         session.commit()
         session.refresh(session_data)

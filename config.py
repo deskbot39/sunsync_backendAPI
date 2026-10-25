@@ -41,6 +41,10 @@ MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
 DEVICE_API_KEY = get_env("DEVICE_API_KEY", "") or ""
 MAX_WIFI_USERS = int(get_env("MAX_WIFI_USERS", "5") or 5)
 MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
+# A paused session cannot be held open forever: it occupies a slot that another paying
+# customer could use, and a hung/unanswered pause would otherwise block the port or hotspot
+# indefinitely.
+MAX_PAUSE_SECONDS = int(get_env("MAX_PAUSE_SECONDS", "900") or 900)
 ALLOWED_ORIGINS = get_env(
     "ALLOWED_ORIGINS",
     "http://localhost,http://localhost:8080,http://localhost:8000,http://localhost:5500,http://127.0.0.1:5500",
