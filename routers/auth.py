@@ -125,6 +125,20 @@ def login_access_token(request: Request,
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+@router.post("/logout")
+def logout(current_user: Admin = Depends(get_current_admin),
+           session: Session = Depends(get_session)):
+    # Bumping the version revokes every token issued to this admin, including the one used
+    # here, so a copied or leaked token stops working as soon as the admin logs out.
+    current_user.token_version += 1
+    session.add(current_user)
+    session.commit()
+    logger.info(
+        "Admin logged out",
+        extra={"event": "admin_logout", "actor": current_user.username},
+    )
+    return {"message": "Logged out"}
+
 @router.patch("/change-password")
 def change_password(password_change: PasswordChangeRequest,
                           current_user: Admin = Depends(get_current_admin),

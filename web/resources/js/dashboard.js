@@ -127,7 +127,20 @@ document.addEventListener('touchend', event => {
 
 sidebarBackdrop.addEventListener('click', closeSidebar);
 
-logoutButton.addEventListener('click', () => {
+logoutButton.addEventListener('click', async () => {
+    const token = getAccessToken();
+    logoutButton.disabled = true;
+    // Revoke the token on the server too; leave the page even if the request fails.
+    if (token) {
+        try {
+            await fetch(`${API_BASE_URL}/auth/logout`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+        } catch (error) {
+            console.error(error);
+        }
+    }
     localStorage.removeItem('activeTab');
     localStorage.removeItem('sunSyncAccessToken');
     sessionStorage.removeItem('sunSyncAccessToken');
