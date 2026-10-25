@@ -31,7 +31,7 @@ class TelemetryClient(BaseModel):
 
 
 class DeviceTelemetry(BaseModel):
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     uptime_ms: int = Field(ge=0)
     upstream_connected: bool
     internet_sharing_enabled: bool

@@ -17,7 +17,7 @@ router = APIRouter(
 @router.post("/register", response_model=Devices,
              dependencies=[Depends(require_device_key)])
 def register_device(request: Request,
-                    device_id: str = Query(min_length=1, max_length=100),
+                    device_id: str = Query(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
                     session: Session = Depends(get_session)):
     enforce_rate_limit(request, "device_registration", limit=10)
     device = session.exec(

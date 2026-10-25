@@ -1,8 +1,10 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from datetime import datetime, timezone
 from decimal import Decimal
-from pydantic import ConfigDict
+from pydantic import ConfigDict, StringConstraints
 from sqlmodel import SQLModel, Field, Column, DateTime
+
+DeviceId = Annotated[str, StringConstraints(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")]
 
 class SystemSettingsUpdate(SQLModel):
     model_config = ConfigDict(extra="forbid")
@@ -23,7 +25,7 @@ class PublicRatesResponse(SQLModel):
 class ServiceSessionCreate(SQLModel):
     model_config = ConfigDict(extra="forbid")
 
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: DeviceId
     session_type: Literal["wifi", "charging"]
     credits: int = Field(ge=1, le=10000)
 
@@ -112,13 +114,13 @@ class WifiSummaryResponse(SQLModel):
     usage: list[WifiUsagePoint] = []
 
 class TransactionCreate(SQLModel):
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: DeviceId
     coin_denomination: Literal[1, 5, 10, 20]
     coins_count: int = Field(gt=0)
     transaction_type: str = Field(min_length=1, max_length=50)
 
 class ForfeitCreate(SQLModel):
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: DeviceId
     credits: int = Field(gt=0, le=10_000)
 
 class AdminUpdate(SQLModel):

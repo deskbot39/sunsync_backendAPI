@@ -159,6 +159,12 @@ function getAccessToken() {
         sessionStorage.getItem('sunSyncAccessToken');
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+}
+
 function formatCurrency(amount) {
     return new Intl.NumberFormat('en-PH', {
         style: 'currency',
@@ -213,9 +219,9 @@ function renderSalesTable() {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td data-label="Time">${formatTransactionTime(transaction.timestamp)}</td>
-                <td data-label="Device">${transaction.device_id || 'Unknown'}</td>
-                <td data-label="Type">${transaction.transaction_type}</td>
-                <td data-label="Coins">${transaction.coin_denomination} x ${transaction.coins_count}</td>
+                <td data-label="Device">${escapeHtml(transaction.device_id || 'Unknown')}</td>
+                <td data-label="Type">${escapeHtml(transaction.transaction_type)}</td>
+                <td data-label="Coins">${escapeHtml(transaction.coin_denomination)} x ${escapeHtml(transaction.coins_count)}</td>
                 <td data-label="Amount">${formatCurrency(transaction.total_amount)}</td>
             `;
             tableBody.appendChild(row);
@@ -486,12 +492,12 @@ function renderChargingTable() {
             const started = parseServerTime(item.session_start);
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td data-label="Device">${item.device_id}</td>
+                <td data-label="Device">${escapeHtml(item.device_id)}</td>
                 <td data-label="Started">${Number.isNaN(started.getTime()) ? '--' : started.toLocaleString()}</td>
                 <td data-label="Status">${item.session_active ? 'Active' : 'Inactive'}</td>
                 <td data-label="Duration">${formatSessionDuration(item.duration_seconds || 0)}</td>
                 <td data-label="Action">${item.session_active && item.id
-                    ? `<button type="button" class="param-btn stop-session-btn" data-session-id="${item.id}">Stop</button>`
+                    ? `<button type="button" class="param-btn stop-session-btn" data-session-id="${escapeHtml(item.id)}">Stop</button>`
                     : ''}</td>
             `;
             tableBody.appendChild(row);
@@ -890,13 +896,13 @@ function renderWifiTable() {
         wifiClients.slice(start, start + WIFI_PAGE_SIZE).forEach(client => {
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td data-label="Device">${client.device_id}</td>
-                <td data-label="Target">${client.session_target}</td>
+                <td data-label="Device">${escapeHtml(client.device_id)}</td>
+                <td data-label="Target">${escapeHtml(client.session_target)}</td>
                 <td data-label="Status">${client.session_active ? 'Active' : 'Inactive'}</td>
                 <td data-label="Data">${(Number(client.data_download_kb) / 1024).toFixed(1)} MB</td>
                 <td data-label="Duration">${formatSessionDuration(client.duration_seconds || 0)}</td>
                 <td data-label="Action">${client.session_active && client.id
-                    ? `<button type="button" class="param-btn stop-session-btn" data-session-id="${client.id}">Stop</button>`
+                    ? `<button type="button" class="param-btn stop-session-btn" data-session-id="${escapeHtml(client.id)}">Stop</button>`
                     : ''}</td>
             `;
             tableBody.appendChild(row);
@@ -1005,8 +1011,8 @@ function renderOverviewActivity() {
     overviewActivity.slice(start, start + OVERVIEW_PAGE_SIZE).forEach(([metric, value, updated]) => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td data-label="Metric">${metric}</td>
-            <td data-label="Value">${value}</td>
+            <td data-label="Metric">${escapeHtml(metric)}</td>
+            <td data-label="Value">${escapeHtml(value)}</td>
             <td data-label="Updated">${formatTransactionTime(updated)}</td>
         `;
         activityBody.appendChild(row);

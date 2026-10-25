@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request
 from sqlmodel import Session, select
 from db import get_session
 from models import (
@@ -124,7 +126,7 @@ def get_session_by_id(id: int, session: Session = Depends(get_session),
 
 @router.get("/device/{device_id}/active", response_model=Sessions | None,
             dependencies=[Depends(require_device_key)])
-def get_active_device_session(device_id: str,
+def get_active_device_session(device_id: Annotated[str, Path(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")],
                               request: Request,
                               session: Session = Depends(get_session)):
     enforce_rate_limit(request, "active_device_session", device_id, limit=30)
@@ -268,7 +270,7 @@ def load_session(id: int, session: Session, device_id: str | None = None,
 @router.patch("/{id}/pause", response_model=Sessions)
 def pause_session(id: int, request: Request,
                   session: Session = Depends(get_session),
-                  device_id: str | None = Query(default=None, min_length=1, max_length=100),
+                  device_id: str | None = Query(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
                   current_admin=Depends(get_optional_admin),
                   x_device_key: str | None = Header(default=None)):
     if current_admin is None:
@@ -288,7 +290,7 @@ def pause_session(id: int, request: Request,
 @router.patch("/{id}/resume", response_model=Sessions)
 def resume_session(id: int, request: Request,
                    session: Session = Depends(get_session),
-                   device_id: str | None = Query(default=None, min_length=1, max_length=100),
+                   device_id: str | None = Query(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
                    current_admin=Depends(get_optional_admin),
                    x_device_key: str | None = Header(default=None)):
     if current_admin is None:
@@ -352,7 +354,7 @@ def end_active_sessions(session: Session, session_type: str | None):
 def report_session_usage(id: int, request: Request,
                          data_download_kb: float = Query(ge=0, le=100_000_000),
                          session: Session = Depends(get_session),
-                         device_id: str | None = Query(default=None, min_length=1, max_length=100),
+                         device_id: str | None = Query(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
                          current_admin=Depends(get_optional_admin),
                          x_device_key: str | None = Header(default=None)):
     if current_admin is None:
@@ -370,7 +372,7 @@ def report_session_usage(id: int, request: Request,
 @router.patch("/{id}/end", response_model=Sessions)
 def end_session(id: int, request: Request,
                 session: Session = Depends(get_session),
-                device_id: str | None = Query(default=None, min_length=1, max_length=100),
+                device_id: str | None = Query(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
                 current_admin=Depends(get_optional_admin),
                 x_device_key: str | None = Header(default=None)):
     if current_admin is None:
