@@ -103,7 +103,7 @@ def get_backup_status(session: Session = Depends(get_session),
 def create_manual_backup(
         request: Request,
         current_admin=Depends(get_current_admin)):
-    enforce_rate_limit(request, "backup_create", limit=2, window_seconds=60)
+    enforce_rate_limit(request, "backup_create", current_admin.username, limit=2, window_seconds=60)
     try:
         backup_path = create_database_backup()
         created_at = record_backup_time()
@@ -135,7 +135,7 @@ def create_manual_backup(
 def restore_backup(request: Request,
                    update: BackupRestoreRequest,
                    current_admin=Depends(get_current_admin)):
-    enforce_rate_limit(request, "backup_restore", limit=1, window_seconds=300)
+    enforce_rate_limit(request, "backup_restore", current_admin.username, limit=1, window_seconds=300)
     try:
         safety_backup = restore_database_backup(update.filename)
     except FileNotFoundError as error:
@@ -206,7 +206,7 @@ def restore_backup(request: Request,
 @router.get("/{filename}", response_class=FileResponse)
 def download_backup(request: Request, filename: str,
                     current_admin=Depends(get_current_admin)):
-    enforce_rate_limit(request, "backup_download", limit=10)
+    enforce_rate_limit(request, "backup_download", current_admin.username, limit=10)
     try:
         backup_path = resolve_backup_path(filename)
     except FileNotFoundError as error:

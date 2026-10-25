@@ -1,3 +1,5 @@
+import ipaddress
+import os
 from hashlib import sha256
 from threading import Lock
 from time import monotonic
@@ -9,6 +11,20 @@ from observability import logger
 _WINDOWS: dict[str, tuple[float, int]] = {}
 _LOCK = Lock()
 _MAX_TRACKED_KEYS = 10000
+# Fly.io sets FLY_APP_NAME on its machines. There, every request arrives through Fly's proxy,
+# so the socket address is an internal proxy IP and the proxy-set Fly-Client-IP header holds
+# the real client. Elsewhere (local runs) the header is client-controlled and is ignored.
+_BEHIND_FLY_PROXY = bool(os.getenv("FLY_APP_NAME"))
+
+
+def client_ip(request: Request) -> str:
+    if _BEHIND_FLY_PROXY:
+        forwarded = request.headers.get("fly-client-ip", "").strip()
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return request.client.host if request.client else "unknown"
 
 
 def enforce_rate_limit(
@@ -18,7 +34,7 @@ def enforce_rate_limit(
     limit: int = 30,
     window_seconds: int = 60,
 ) -> None:
-    client_host = request.client.host if request.client else "unknown"
+    client_host = client_ip(request)
     digest = sha256(
         f"{client_host}\0{identity}".encode("utf-8")
     ).hexdigest()

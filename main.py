@@ -20,6 +20,7 @@ from db import (
 )
 from mqtt_service import start_mqtt, stop_mqtt
 from observability import logger
+from rate_limits import client_ip
 from routers import auth, backups, devices, overview, parameters, sales, settings, telemetry
 
 @asynccontextmanager
@@ -86,7 +87,7 @@ async def log_http_request(request: Request, call_next):
                 "path": request.url.path,
                 "status_code": status_code,
                 "duration_ms": round((perf_counter() - started_at) * 1000, 2),
-                "client_host": request.client.host if request.client else None,
+                "client_host": client_ip(request),
             },
         )
 
