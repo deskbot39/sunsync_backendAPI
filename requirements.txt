@@ -3,6 +3,6 @@ uvicorn==0.52.4
 sqlmodel==0.0.39
 SQLAlchemy==2.0.52
 pwdlib[argon2,bcrypt]==0.3.1
-PyJWT==2.13.0
+PyJWT==2.15.1
 python-multipart==0.0.32
 paho-mqtt==2.1.0
