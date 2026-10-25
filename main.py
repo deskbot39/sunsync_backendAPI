@@ -6,6 +6,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import os
 from time import perf_counter
 from uuid import uuid4
 
@@ -66,8 +67,14 @@ async def log_http_request(request: Request, call_next):
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+            "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; "
+            "form-action 'self'",
         )
+        if os.environ.get("FLY_APP_NAME"):
+            # Only behind Fly's HTTPS edge; local runs use plain HTTP.
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000"
+            )
         if request.url.path.endswith((".html", ".js", ".css")):
             response.headers["Cache-Control"] = "no-cache"
         return response
