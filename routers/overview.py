@@ -19,6 +19,16 @@ from models import (
 )
 from routers.auth import get_current_admin
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(value):
+    # Text starting with a formula character is run by Excel/Sheets when the export is opened,
+    # so it is prefixed with ' to force plain text. Real numbers (e.g. negative dBm) are kept.
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
 router = APIRouter(
     prefix="/status",
     tags=["status"],
@@ -135,12 +145,12 @@ def export_business_data(session: Session = Depends(get_session),
 
     def add_row(section, record_id, description, value, unit="", recorded_at=exported_at):
         writer.writerow([
-            section,
+            csv_safe(section),
             record_id or "",
-            description,
-            "" if value is None else value,
-            unit,
-            recorded_at,
+            csv_safe(description),
+            "" if value is None else csv_safe(value),
+            csv_safe(unit),
+            csv_safe(recorded_at),
         ])
 
     total_revenue = sum(

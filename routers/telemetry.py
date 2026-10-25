@@ -1,10 +1,11 @@
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from time import monotonic
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
 from db import get_session
@@ -23,11 +24,19 @@ ORPHAN_GRACE_SECONDS = 60
 
 
 class TelemetryClient(BaseModel):
-    mac: str = Field(max_length=17)
+    mac: str = Field(pattern=r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+    # The kiosk sends "unknown" for a station that has not been given an address yet.
     ip: str = Field(max_length=45)
     rssi_dbm: int | None = None
     downloaded_bytes: int = Field(default=0, ge=0)
     uploaded_bytes: int = Field(default=0, ge=0)
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, value: str) -> str:
+        if value == "unknown":
+            return value
+        return str(ipaddress.ip_address(value))
 
 
 class DeviceTelemetry(BaseModel):
