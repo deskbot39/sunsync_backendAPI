@@ -141,6 +141,14 @@ def migrate_device_foreign_keys():
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+    if "token_version" not in {
+        column["name"] for column in inspect(engine).get_columns("admin")
+    }:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE admin ADD COLUMN token_version "
+                "INTEGER NOT NULL DEFAULT 0"
+            ))
     if "coin_denomination" not in {
         column["name"] for column in inspect(engine).get_columns("transactions")
     }:

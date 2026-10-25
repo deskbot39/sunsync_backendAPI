@@ -192,6 +192,7 @@ class Admin(SQLModel, table=True):
     username: str
     password_hash: str
     is_active: bool = Field(default=True)
+    token_version: int = Field(default=0, ge=0, nullable=False)
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True)),
         default_factory=lambda: datetime.now(timezone.utc))
 

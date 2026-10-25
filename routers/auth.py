@@ -31,18 +31,24 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(data: dict, 
                          expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=30)
+        expire = now + timedelta(minutes=30)
 
-    to_encode.update({"exp": expire})
+    to_encode.update({"iat": now, "exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
     return encoded_jwt
 
 def verify_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=["HS256"],
+            options={"require": ["exp", "iat", "sub", "ver"]},
+        )
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -69,10 +75,12 @@ def get_current_admin(token: str = Depends(oauth2_scheme),
         )
 
     user = session.exec(select(Admin).where(Admin.username == username)).first()
-    if not user or not user.is_active:
+    if (not user or not user.is_active or
+            type(payload.get("ver")) is not int or
+            payload["ver"] != user.token_version):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive or unknown user",
+            detail="Inactive user or invalidated token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
@@ -108,7 +116,9 @@ def login_access_token(request: Request,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": user.username})
+    access_token = create_access_token(
+        data={"sub": user.username, "ver": user.token_version}
+    )
     logger.info(
         "Admin login succeeded",
         extra={"event": "admin_login_succeeded", "actor": user.username},
@@ -127,6 +137,7 @@ def change_password(password_change: PasswordChangeRequest,
         )
 
     current_user.password_hash = hash_password(password_change.new_password)
+    current_user.token_version += 1
     session.add(current_user)
     session.commit()
     logger.info(
