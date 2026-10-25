@@ -90,6 +90,12 @@ button {
     color: var(--side-textb);
 }
 
+.dash-logo {
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+}
+
 .dash-context {
     color: var(--side-text);
     font-size: 0.7em;
