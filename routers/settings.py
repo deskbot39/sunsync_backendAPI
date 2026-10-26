@@ -8,6 +8,7 @@ from models import (
     SystemSettingsResponse,
     SystemSettingsUpdate,
 )
+from device_auth import require_device_key
 from routers.auth import get_current_admin
 
 router = APIRouter(
@@ -16,7 +17,8 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
     )
 
-@router.get("/public/{id}", response_model=PublicRatesResponse)
+@router.get("/public/{id}", response_model=PublicRatesResponse,
+            dependencies=[Depends(require_device_key)])
 def get_public_rates(id: int, session: Session = Depends(get_session)):
     settings = session.get(SystemSettings, id)
     if not settings:

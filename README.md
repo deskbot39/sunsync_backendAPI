@@ -1,67 +1,69 @@
-# Sun Sync
+# Sun Sync Backend
 
-## Local test deployment
+FastAPI backend for the Sun Sync kiosk, deployed on Fly.io. Design notes are in
+[SYSTEM_DOCUMENTATION.md](SYSTEM_DOCUMENTATION.md) and
+[FUTURE_DEVELOPMENT_RECOMMENDATIONS.md](FUTURE_DEVELOPMENT_RECOMMENDATIONS.md); these
+date from 2026-10-21 and predate later features (telemetry, MQTT, kiosk-confirmed sales),
+so this README is the current reference for those.
 
-1. Activate the project virtual environment.
-2. Start the API:
-   ```powershell
-   .\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-3. Open the frontend pages directly from the project folder or serve them with a lightweight static server.
-4. The frontend pages are configured for port `8000`. If you use a different backend port, set this before loading the frontend pages:
-   ```html
-   <script>
-     window.SUNSYNC_API_BASE = 'http://localhost:8000';
-   </script>
-   ```
-   Place it before the page script includes.
-   When a phone loads the pages from the ESP32, `localhost` refers to the
-   phone, not the backend PC. Set this value to the backend host's LAN address
-   and port before enabling service sessions. If the backend cannot be reached,
-   the page will not start a session or activate the charging relay.
+## Tests
 
-## Environment settings
-
-A `.env` file is supported for local development. Keep it out of source control:
-
-```env
-SECRET_KEY=
-INITIAL_ADMIN_USERNAME=admin
-INITIAL_ADMIN_PASSWORD=
-DEBUG=false
-ALLOWED_ORIGINS=http://localhost,http://localhost:8000
+```
+pip install -r requirements.txt pytest httpx
+python -m pytest tests
 ```
 
-Generate a signing key with:
+The tests are not shipped in the Docker image (see `.dockerignore`).
 
-```powershell
-.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_hex(32))"
+## First deploy
+
+```sh
+fly launch --no-deploy --copy-config      # pick/confirm the app name
+fly volumes create sunsync_data --size 1 --region sin
+fly secrets set SECRET_KEY=<64 hex chars> DEVICE_API_KEY=<64 hex chars> INITIAL_ADMIN_PASSWORD=<12+ chars> \
+  MQTT_HOST=<broker host> MQTT_USERNAME=<user> MQTT_PASSWORD=<password>
+fly deploy
 ```
 
-Copy the generated key into `SECRET_KEY` and set a unique administrator
-password of at least 12 characters before starting the backend.
-The backend refuses to start without a valid `SECRET_KEY`. On a new database,
-`INITIAL_ADMIN_PASSWORD` is required to create the initial administrator. The
-known legacy `admin123` password is rotated to that configured value on startup;
-the legacy password is never used to create a new account. Existing
-non-default administrator credentials are not changed automatically.
+Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
 
-Login, device registration, public device-session actions, and backup
-create/restore endpoints have in-process rate limits: login is capped at 5
-attempts per account and 20 per source IP every five minutes; device
-registration at 10/minute per IP; unauthenticated device-session lookup at
-30/minute per device and 60/minute per IP; unauthenticated session actions at
-20/minute per device and 60/minute per IP; public session start at 10/minute
-per device and 30/minute per IP; backup creation at 2/minute per IP;
-restore at 1/5 minutes per IP; and backup downloads at 10/minute per IP. HTTP
-access and authentication/backup events are written as JSON logs without
-request bodies, passwords, bearer tokens, or query strings. Rate-limit state
-is intentionally local to this process and resets on restart; it is suitable
-as a development abuse guard, not a distributed/public-edge rate limiter.
+## Notes
 
-`POST /sessions/start` creates a timed Wi-Fi or charging session for a
-registered device using the configured service rate and requested credit
-count. The ESP32 remains authoritative for checking and consuming its
-in-memory coin credits before it activates the charging relay. This backend
-endpoint records sessions but does not by itself activate hardware or prove
-payment.
+- The SQLite database and backups live on the `/data` volume (`DATA_DIR`).
+  On first start the database is seeded from `clean.db` (admin user plus default
+  wifi/charging rates). The default `admin123` password is rotated to
+  `INITIAL_ADMIN_PASSWORD` on startup.
+- Keep a single machine: SQLite, the in-process rate limiter and the live kiosk
+  snapshot (`/devices/live`) are not shared between machines.
+- The admin pages (`/login.html`, `/dashboard.html`, assets under `/resources`) are
+  served from `web/` by the backend itself, so the dashboard and API share one origin.
+  `ALLOWED_ORIGINS` is only needed for other frontends.
+- Health check: `GET /health`.
+- The ESP32 must send the `X-Device-Key: <DEVICE_API_KEY>` header on device
+  endpoints (`/devices/register`, `/devices/telemetry`, `/settings/public/{id}`,
+  `/sessions/start`, `/sessions/{id}/confirm`, `/sessions/device/{id}/active`, and session
+  pause/resume/end).
+- `POST /devices/telemetry` is sent by the kiosk every ~15 s with its uptime, upstream
+  state, connected Wi-Fi clients and `local_session_ids` (every session it is serving).
+  The admin dashboard reads the latest snapshot from `GET /devices/live` (kept in memory;
+  the kiosk counts as offline after 45 s). The reply lists the active session ids so the
+  kiosk ends sessions an admin stopped here; active sessions the kiosk does not list are
+  closed after 60 s.
+- Sales: `/sessions/start` holds the credits as `pending_credits`; the sale is recorded once
+  the kiosk confirms it started the session (`POST /sessions/{id}/confirm`, the session
+  appearing in telemetry, or a usage report). Starts the kiosk refuses book no sale.
+- Capacity: at most `MAX_WIFI_USERS` (5) active wifi sessions and
+  `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`. The
+  firmware's `MAX_WIFI_SESSIONS` must match.
+
+## MQTT (INA219 telemetry)
+
+The backend subscribes to `sunsync/ina219/+` on an **external** MQTT broker
+(Fly does not run one). Set `MQTT_HOST`, `MQTT_USERNAME` and `MQTT_PASSWORD` as
+secrets; `fly.toml` defaults to TLS on port 8883. The firmware publishes
+`{"voltage_v": <V>, "current_a": <A>}` to `sunsync/ina219/1` (solar panel) and
+`sunsync/ina219/2` (battery, 3S 18650 pack) every 2 seconds. The ESP32 and the
+backend must use the same broker and `MQTT_TOPIC_PREFIX`. The firmware's
+`PubSubClient` uses a plain TCP connection, so either point it at a broker
+listener that accepts it or switch the firmware to `WiFiClientSecure` for TLS.
+Set `MQTT_ENABLED=false` to turn the subscriber off.

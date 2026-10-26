@@ -1,26 +1,21 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from datetime import datetime, timezone
 from decimal import Decimal
-from pydantic import ConfigDict
+from pydantic import ConfigDict, StringConstraints
 from sqlmodel import SQLModel, Field, Column, DateTime
+
+DeviceId = Annotated[str, StringConstraints(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")]
 
 class SystemSettingsUpdate(SQLModel):
     model_config = ConfigDict(extra="forbid")
 
-    wifi_ssid: Optional[str] = Field(default=None, min_length=1, max_length=64)
-    wifi_password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     wifi_rate_per_coin: Optional[int] = Field(default=None, ge=0)
     charging_rate_per_coin: Optional[int] = Field(default=None, ge=0)
-    solar_battery_min_cutoff: Optional[float] = Field(default=None, ge=0, le=100)
-    max_load_watts: Optional[float] = Field(default=None, gt=0)
 
 class SystemSettingsResponse(SQLModel):
     id: int
-    wifi_ssid: str
     wifi_rate_per_coin: int
     charging_rate_per_coin: int
-    solar_battery_min_cutoff: float
-    max_load_watts: float
     date_updated: datetime
 
 class PublicRatesResponse(SQLModel):
@@ -30,7 +25,7 @@ class PublicRatesResponse(SQLModel):
 class ServiceSessionCreate(SQLModel):
     model_config = ConfigDict(extra="forbid")
 
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: DeviceId
     session_type: Literal["wifi", "charging"]
     credits: int = Field(ge=1, le=10000)
 
@@ -61,11 +56,20 @@ class BackupStatusResponse(SQLModel):
 class BackupRestoreRequest(SQLModel):
     filename: str = Field(min_length=1, max_length=255)
 
+class ChargingSessionResponse(SQLModel):
+    id: int | None = None
+    device_id: str
+    session_active: bool
+    duration_seconds: int | None
+    session_start: datetime
+
 class ChargingSummaryResponse(SQLModel):
     used_ports: int
     inactive_ports: int
+    total_sessions: int = 0
     current_load_watts: float
     average_session_seconds: int
+    sessions: list[ChargingSessionResponse] = []
 
 class SolarSummaryResponse(SQLModel):
     current_output_watts: float
@@ -91,23 +95,33 @@ class OverviewSummaryResponse(SQLModel):
     last_status_update: datetime
 
 class WifiClientResponse(SQLModel):
+    id: int | None = None
     device_id: str
     session_target: str
     session_active: bool
     data_download_kb: float
     duration_seconds: int | None
 
+class WifiUsagePoint(SQLModel):
+    session_start: datetime
+    data_download_kb: float
+
 class WifiSummaryResponse(SQLModel):
     active_clients: int
     total_sessions: int
     total_download_kb: float
     clients: list[WifiClientResponse]
+    usage: list[WifiUsagePoint] = []
 
 class TransactionCreate(SQLModel):
-    device_id: str = Field(min_length=1, max_length=100)
+    device_id: DeviceId
     coin_denomination: Literal[1, 5, 10, 20]
     coins_count: int = Field(gt=0)
     transaction_type: str = Field(min_length=1, max_length=50)
+
+class ForfeitCreate(SQLModel):
+    device_id: DeviceId
+    credits: int = Field(gt=0, le=10_000)
 
 class AdminUpdate(SQLModel):
     model_config = ConfigDict(extra="forbid")
@@ -118,12 +132,8 @@ class AdminUpdate(SQLModel):
 
 class SystemSettings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    wifi_ssid: str = Field(default="SunSync", nullable=False)
-    wifi_password: str = Field(default="SunSync123", nullable=False)
     wifi_rate_per_coin: int = Field(default=180, nullable=False)
     charging_rate_per_coin: int = Field(default=180, nullable=False)
-    solar_battery_min_cutoff: float = Field(default=20.0, nullable=False)
-    max_load_watts: float = Field(default=40.0, nullable=False)
     date_updated: datetime = Field(sa_column=Column(DateTime(timezone=True)),
         default_factory=lambda: datetime.now(timezone.utc))
 
@@ -157,6 +167,10 @@ class Sessions(SQLModel, table=True):
     port_output_watts: Optional[float] = Field(default=None)
     session_active: bool = Field(default=True)
     duration_seconds: Optional[int] = Field(default=None)
+    # Credits charged for this session that are not yet recorded as a sale. The sale is recorded
+    # only once the kiosk confirms it actually started the session, so a start the kiosk refuses
+    # (and the phone then cancels) never books revenue.
+    pending_credits: Optional[int] = Field(default=None)
     paused_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None)
     paused_seconds: int = Field(default=0, ge=0, nullable=False)
@@ -182,6 +196,7 @@ class Admin(SQLModel, table=True):
     username: str
     password_hash: str
     is_active: bool = Field(default=True)
+    token_version: int = Field(default=0, ge=0, nullable=False)
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True)),
         default_factory=lambda: datetime.now(timezone.utc))
 
@@ -190,3 +205,12 @@ class BackupSchedule(SQLModel, table=True):
     frequency: str = Field(default="manual", nullable=False)
     last_backup_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None)
+
+class Ina219Reading(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sensor_id: int = Field(index=True, ge=1, le=2)
+    voltage_v: float
+    current_a: float
+    power_w: float
+    timestamp: datetime = Field(sa_column=Column(DateTime(timezone=True)),
+        default_factory=lambda: datetime.now(timezone.utc))

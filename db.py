@@ -1,3 +1,6 @@
+import os
+import shutil
+from pathlib import Path
 from datetime import datetime, timezone
 from pwdlib import PasswordHash
 from sqlalchemy import event, inspect, text
@@ -14,15 +17,24 @@ from models import (
 )
 
 
-sqlite_file_name = "test.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", "."))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+sqlite_file_name = str(DATA_DIR / "test.db")
+SEED_DB = Path(__file__).resolve().parent / "clean.db"
+if not Path(sqlite_file_name).exists() and SEED_DB.exists():
+    shutil.copyfile(SEED_DB, sqlite_file_name)
 sqlite_url = f"sqlite:///{sqlite_file_name}"
-engine = create_engine(sqlite_url, echo=False)
+engine = create_engine(sqlite_url, echo=False, connect_args={"timeout": 20})
 ph_time = datetime.now(timezone.utc)
 password_hash = PasswordHash.recommended()
 
 @event.listens_for(engine, "connect")
 def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     dbapi_connection.execute("PRAGMA foreign_keys=ON")
+    # WAL lets sensor writes and API requests overlap instead of blocking each other.
+    dbapi_connection.execute("PRAGMA journal_mode=WAL")
+    dbapi_connection.execute("PRAGMA synchronous=NORMAL")
+    dbapi_connection.execute("PRAGMA busy_timeout=20000")
 
 def migrate_device_foreign_keys():
     inspector = inspect(engine)
@@ -129,6 +141,14 @@ def migrate_device_foreign_keys():
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+    if "token_version" not in {
+        column["name"] for column in inspect(engine).get_columns("admin")
+    }:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE admin ADD COLUMN token_version "
+                "INTEGER NOT NULL DEFAULT 0"
+            ))
     if "coin_denomination" not in {
         column["name"] for column in inspect(engine).get_columns("transactions")
     }:
@@ -145,18 +165,22 @@ def create_db_and_tables():
                 "ALTER TABLE transactions ADD COLUMN device_id VARCHAR(100)"
             ))
     migrate_device_foreign_keys()
+    # After the table rebuild above, which only knows the older column set.
+    if "pending_credits" not in {
+        column["name"] for column in inspect(engine).get_columns("sessions")
+    }:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE sessions ADD COLUMN pending_credits INTEGER"
+            ))
 
 def create_initial_settings():
     with Session(engine) as session:
         existing_settings = session.exec(select(SystemSettings)).first()
         if existing_settings is None:
             session.add(SystemSettings(
-                wifi_ssid="SunSync",
-                wifi_password="SunSync123",
                 wifi_rate_per_coin=180,
                 charging_rate_per_coin=180,
-                solar_battery_min_cutoff=20.0,
-                max_load_watts=40.0
             ))
 
             session.commit()

@@ -1,6 +1,7 @@
 import asyncio
 import calendar
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from db import engine, sqlite_file_name
 from models import BackupSchedule
 from observability import logger
 
-BACKUP_DIRECTORY = Path(__file__).resolve().parent / "backups"
+BACKUP_DIRECTORY = Path(sqlite_file_name).resolve().parent / "backups"
 BACKUP_RETENTION_COUNT = 7
 BACKUP_LOCK_PATH = BACKUP_DIRECTORY / ".backup.lock"
 
@@ -107,6 +108,8 @@ def _create_database_backup_unlocked(prune=True) -> Path:
 
 
 def resolve_backup_path(filename: str) -> Path:
+    if not re.fullmatch(r"sunsync-backup-[0-9]{8}-[0-9]{6}-[0-9]{6}\.db", filename):
+        raise FileNotFoundError("Backup not found")
     backup_path = (BACKUP_DIRECTORY / filename).resolve()
     if (backup_path.parent != BACKUP_DIRECTORY.resolve() or
             backup_path.suffix != ".db" or

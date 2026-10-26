@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+__pycache__
+*.py[cod]
+.venv
+backups
+test.db
+fly.toml
+README.md
+tests
+SYSTEM_DOCUMENTATION.md
+FUTURE_DEVELOPMENT_RECOMMENDATIONS.md

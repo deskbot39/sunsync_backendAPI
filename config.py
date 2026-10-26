@@ -35,6 +35,16 @@ SECRET_KEY = get_env("SECRET_KEY", "") or ""
 DEBUG = str(get_env("DEBUG", "false")).strip().lower() in {"1", "true", "yes", "on"}
 INITIAL_ADMIN_USERNAME = get_env("INITIAL_ADMIN_USERNAME", "admin") or "admin"
 INITIAL_ADMIN_PASSWORD = get_env("INITIAL_ADMIN_PASSWORD")
+DEVICE_API_KEY = get_env("DEVICE_API_KEY", "") or ""
+MAX_WIFI_USERS = int(get_env("MAX_WIFI_USERS", "5") or 5)
+MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
+DEVICE_API_KEY = get_env("DEVICE_API_KEY", "") or ""
+MAX_WIFI_USERS = int(get_env("MAX_WIFI_USERS", "5") or 5)
+MAX_CHARGING_USERS = int(get_env("MAX_CHARGING_USERS", "1") or 1)
+# A paused session cannot be held open forever: it occupies a slot that another paying
+# customer could use, and a hung/unanswered pause would otherwise block the port or hotspot
+# indefinitely.
+MAX_PAUSE_SECONDS = int(get_env("MAX_PAUSE_SECONDS", "900") or 900)
 ALLOWED_ORIGINS = get_env(
     "ALLOWED_ORIGINS",
     "http://localhost,http://localhost:8080,http://localhost:8000,http://localhost:5500,http://127.0.0.1:5500",
@@ -47,3 +57,19 @@ def validate_security_configuration() -> None:
         raise RuntimeError(
             "Set SECRET_KEY to a random value of at least 32 characters."
         )
+    if len(DEVICE_API_KEY) < 32:
+        raise RuntimeError(
+            "Set DEVICE_API_KEY to a random value of at least 32 characters."
+        )
+    if len(DEVICE_API_KEY) < 32:
+        raise RuntimeError(
+            "Set DEVICE_API_KEY to a random value of at least 32 characters."
+        )
+
+MQTT_ENABLED = str(get_env("MQTT_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+MQTT_HOST = get_env("MQTT_HOST", "localhost") or "localhost"
+MQTT_PORT = int(get_env("MQTT_PORT", "1883") or 1883)
+MQTT_USERNAME = get_env("MQTT_USERNAME")
+MQTT_PASSWORD = get_env("MQTT_PASSWORD")
+MQTT_TLS = str(get_env("MQTT_TLS", "false")).strip().lower() in {"1", "true", "yes", "on"}
+MQTT_TOPIC_PREFIX = (get_env("MQTT_TOPIC_PREFIX", "sunsync") or "sunsync").strip("/")

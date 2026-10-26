@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from db import get_session
 from models import (
     Devices,
+    Ina219Reading,
     OverviewSummaryResponse,
     SolarSummaryResponse,
     SystemHealthResponse,
@@ -17,6 +18,16 @@ from models import (
     Transactions,
 )
 from routers.auth import get_current_admin
+
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(value):
+    # Text starting with a formula character is run by Excel/Sheets when the export is opened,
+    # so it is prefixed with ' to force plain text. Real numbers (e.g. negative dBm) are kept.
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
 
 router = APIRouter(
     prefix="/status",
@@ -29,7 +40,7 @@ def get_solar_summary(session: Session = Depends(get_session),
                       current_admin=Depends(get_current_admin)):
     statuses = session.exec(
         select(SystemStatus)
-        .order_by(SystemStatus.timestamp.desc())
+        .order_by(SystemStatus.id.desc())
         .limit(24)
     ).all()
     if not statuses:
@@ -46,12 +57,40 @@ def get_solar_summary(session: Session = Depends(get_session),
         history_labels=[item.timestamp.isoformat() for item in statuses],
     )
 
+SENSOR_FRESH_SECONDS = 15
+
+@router.get("/sensors")
+def get_sensors(session: Session = Depends(get_session),
+                current_admin=Depends(get_current_admin)):
+    def latest(sensor_id: int) -> dict:
+        reading = session.exec(
+            select(Ina219Reading)
+            .where(Ina219Reading.sensor_id == sensor_id)
+            .order_by(Ina219Reading.id.desc())
+        ).first()
+        if not reading:
+            return {"available": False}
+        timestamp = reading.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+        return {
+            "available": age <= SENSOR_FRESH_SECONDS,
+            "bus_voltage_v": reading.voltage_v,
+            "current_ma": reading.current_a * 1000,
+            "power_w": reading.power_w,
+            "timestamp": timestamp.isoformat(),
+        }
+
+    # Sensor 1 is the solar panel and sensor 2 is the battery (see mqtt_service.py).
+    return {"ina219": latest(2), "ina219_panel": latest(1)}
+
 @router.get("/overview-summary", response_model=OverviewSummaryResponse)
 def get_overview_summary(session: Session = Depends(get_session),
                          current_admin=Depends(get_current_admin)):
     settings = session.exec(select(SystemSettings)).first()
     latest_status = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).first()
     if not settings or not latest_status:
         raise HTTPException(status_code=404, detail="Overview data not found")
@@ -79,7 +118,7 @@ def get_overview_summary(session: Session = Depends(get_session),
 def get_system_health(session: Session = Depends(get_session),
                       current_admin=Depends(get_current_admin)):
     latest = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).first()
     if not latest:
         raise HTTPException(status_code=404, detail="System health not found")
@@ -95,7 +134,7 @@ def export_business_data(session: Session = Depends(get_session),
         select(Transactions).order_by(Transactions.timestamp.desc())
     ).all()
     statuses = session.exec(
-        select(SystemStatus).order_by(SystemStatus.timestamp.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc())
     ).all()
     latest_status = statuses[0] if statuses else None
     exported_at = datetime.now(timezone.utc).isoformat()
@@ -106,12 +145,12 @@ def export_business_data(session: Session = Depends(get_session),
 
     def add_row(section, record_id, description, value, unit="", recorded_at=exported_at):
         writer.writerow([
-            section,
+            csv_safe(section),
             record_id or "",
-            description,
-            "" if value is None else value,
-            unit,
-            recorded_at,
+            csv_safe(description),
+            "" if value is None else csv_safe(value),
+            csv_safe(unit),
+            csv_safe(recorded_at),
         ])
 
     total_revenue = sum(
@@ -127,16 +166,10 @@ def export_business_data(session: Session = Depends(get_session),
 
     if settings:
         recorded_at = settings.date_updated.isoformat()
-        add_row("System Settings", settings.id, "Wi-Fi Name", settings.wifi_ssid,
-                recorded_at=recorded_at)
         add_row("System Settings", settings.id, "Wi-Fi Rate", settings.wifi_rate_per_coin,
                 "PHP/coin", recorded_at)
         add_row("System Settings", settings.id, "Charging Rate", settings.charging_rate_per_coin,
                 "PHP/coin", recorded_at)
-        add_row("System Settings", settings.id, "Battery Cutoff", settings.solar_battery_min_cutoff,
-                "%", recorded_at)
-        add_row("System Settings", settings.id, "Maximum Load", settings.max_load_watts,
-                "W", recorded_at)
 
     for item in devices:
         recorded_at = item.last_seen.isoformat()

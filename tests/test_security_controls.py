@@ -133,7 +133,10 @@ class SecurityConfigurationTests(unittest.TestCase):
                 config.validate_security_configuration()
 
     def test_random_secret_of_sufficient_length_is_accepted(self):
-        with patch.object(config, "SECRET_KEY", "a" * 64):
+        with (
+            patch.object(config, "SECRET_KEY", "a" * 64),
+            patch.object(config, "DEVICE_API_KEY", "b" * 64),
+        ):
             config.validate_security_configuration()
 
 
@@ -210,7 +213,7 @@ class BackupRestoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             backup_directory = root / "backups"
             backup_directory.mkdir()
-            invalid_backup = backup_directory / "sunsync-backup-invalid.db"
+            invalid_backup = backup_directory / "sunsync-backup-20260101-000000-000000.db"
             with closing(sqlite3.connect(invalid_backup)) as connection:
                 connection.execute("CREATE TABLE unrelated (value TEXT)")
                 connection.commit()

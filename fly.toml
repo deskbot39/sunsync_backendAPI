@@ -1,0 +1,35 @@
+app = "sunsync-backend"
+primary_region = "sin"
+
+[build]
+
+[env]
+  DATA_DIR = "/data"
+  DEBUG = "false"
+  MQTT_ENABLED = "true"
+  MQTT_PORT = "8883"
+  MQTT_TLS = "true"
+  MQTT_TOPIC_PREFIX = "sunsync"
+  ALLOWED_ORIGINS = "https://sunsync-backend.fly.dev"
+
+[mounts]
+  source = "sunsync_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
