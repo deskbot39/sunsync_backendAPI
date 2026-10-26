@@ -2,7 +2,7 @@ import ipaddress
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from time import monotonic
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
@@ -13,7 +13,7 @@ from device_auth import require_device_key
 from models import Sessions
 from rate_limits import enforce_rate_limit
 from routers.auth import get_current_admin
-from routers.parameters import expire_session_if_needed
+from routers.parameters import expire_session_if_needed, record_session_sale
 
 router = APIRouter(prefix="/devices", tags=["telemetry"])
 
@@ -48,6 +48,9 @@ class DeviceTelemetry(BaseModel):
     clients: list[TelemetryClient] = Field(default_factory=list, max_length=32)
     # Backend session the kiosk is currently serving (0 = none); None from older firmware.
     local_session_id: int | None = Field(default=None, ge=0)
+    # Every backend session the kiosk is serving (several Wi-Fi users plus the charger).
+    local_session_ids: list[Annotated[int, Field(gt=0)]] | None = Field(
+        default=None, max_length=16)
 
 
 _LOCK = Lock()
@@ -85,6 +88,20 @@ def receive_telemetry(request: Request,
 
     # The kiosk ends its local session when the backend no longer lists it as active,
     # so an admin stopping a session from the cloud dashboard also cuts the user's access.
+    if telemetry.local_session_ids is not None:
+        local_ids: set[int] | None = set(telemetry.local_session_ids)
+    elif telemetry.local_session_id is not None:
+        local_ids = {telemetry.local_session_id}
+    else:
+        local_ids = None
+    if local_ids:
+        # The kiosk is (or was) running these, so their coins were really spent. This also
+        # covers sessions that expired or ended before this report arrived.
+        for item in session.exec(select(Sessions).where(
+                Sessions.id.in_(local_ids),  # type: ignore[union-attr]
+                Sessions.pending_credits != None)).all():  # noqa: E711
+            record_session_sale(item, session)
+        session.commit()
     active_ids = []
     now = datetime.now(timezone.utc)
     for item in session.exec(
@@ -97,8 +114,8 @@ def receive_telemetry(request: Request,
         started = item.session_start
         if started is not None and started.tzinfo is None:
             started = started.replace(tzinfo=timezone.utc)
-        if (telemetry.local_session_id is not None
-                and item.id != telemetry.local_session_id
+        if (local_ids is not None
+                and item.id not in local_ids
                 and started is not None
                 and (now - started).total_seconds() > ORPHAN_GRACE_SECONDS):
             item.session_active = False

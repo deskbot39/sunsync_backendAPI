@@ -28,13 +28,20 @@ Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`.
 - Health check: `GET /health`.
 - The ESP32 must send the `X-Device-Key: <DEVICE_API_KEY>` header on device
   endpoints (`/devices/register`, `/devices/telemetry`, `/settings/public/{id}`,
-  `/sessions/start`, `/sessions/device/{id}/active`, and session pause/resume/end).
+  `/sessions/start`, `/sessions/{id}/confirm`, `/sessions/device/{id}/active`, and session
+  pause/resume/end).
 - `POST /devices/telemetry` is sent by the kiosk every ~15 s with its uptime, upstream
-  state and connected Wi-Fi clients. The admin dashboard reads the latest snapshot from
-  `GET /devices/live` (kept in memory; the kiosk counts as offline after 45 s). The reply
-  lists the active session ids so the kiosk ends sessions an admin stopped here.
+  state, connected Wi-Fi clients and `local_session_ids` (every session it is serving).
+  The admin dashboard reads the latest snapshot from `GET /devices/live` (kept in memory;
+  the kiosk counts as offline after 45 s). The reply lists the active session ids so the
+  kiosk ends sessions an admin stopped here; active sessions the kiosk does not list are
+  closed after 60 s.
+- Sales: `/sessions/start` holds the credits as `pending_credits`; the sale is recorded once
+  the kiosk confirms it started the session (`POST /sessions/{id}/confirm`, the session
+  appearing in telemetry, or a usage report). Starts the kiosk refuses book no sale.
 - Capacity: at most `MAX_WIFI_USERS` (5) active wifi sessions and
-  `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`.
+  `MAX_CHARGING_USERS` (1) active charging session; further starts return `409`. The
+  firmware's `MAX_WIFI_SESSIONS` must match.
 
 ## MQTT (INA219 telemetry)
 

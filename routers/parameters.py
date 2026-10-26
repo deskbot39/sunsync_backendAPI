@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request
-from sqlmodel import Session, select
+from sqlmodel import Session, select, update
 from db import get_session
 from models import (
     ChargingSessionResponse,
@@ -255,21 +255,54 @@ def start_device_session(
         session_target="router" if request_data.session_type == "wifi" else "charger",
         session_active=True,
         duration_seconds=duration_seconds,
+        pending_credits=request_data.credits,
         session_start=now,
         expires_at=now + timedelta(seconds=duration_seconds),
     )
     session.add(session_data)
-    # One credit is one peso coin pulse; record the sale together with the session.
-    session.add(Transactions(
-        device_id=request_data.device_id,
-        coin_denomination=1,
-        coins_count=request_data.credits,
-        total_amount=Decimal(request_data.credits),
-        transaction_type=request_data.session_type,
-    ))
     session.commit()
     session.refresh(session_data)
     return session_data
+
+def record_session_sale(session_data: Sessions, session: Session) -> bool:
+    """Books the session's pending credits as a sale once; the caller commits."""
+    credits = session_data.pending_credits
+    if not credits or session_data.id is None:
+        return False
+    # Claim the credits with a conditional UPDATE so concurrent confirm/telemetry/usage
+    # requests holding stale copies cannot both book the sale.
+    claimed = session.execute(
+        update(Sessions)
+        .where(Sessions.id == session_data.id, Sessions.pending_credits == credits)
+        .values(pending_credits=None)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if claimed != 1:
+        session_data.pending_credits = None
+        return False
+    # One credit is one peso coin pulse.
+    session.add(Transactions(
+        device_id=session_data.device_id,
+        coin_denomination=1,
+        coins_count=credits,
+        total_amount=Decimal(credits),
+        transaction_type=session_data.session_type,
+    ))
+    session_data.pending_credits = None
+    return True
+
+@router.post("/{id}/confirm", dependencies=[Depends(require_device_key)])
+def confirm_session_started(id: int, request: Request,
+                            device_id: str = Query(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
+                            session: Session = Depends(get_session)):
+    enforce_rate_limit(request, "confirm_session", str(id), limit=20)
+    session_data = session.get(Sessions, id)
+    if not session_data or session_data.device_id != device_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Confirmed even if it has since ended: the kiosk did start it, so the coins were spent.
+    recorded = record_session_sale(session_data, session)
+    session.commit()
+    return {"confirmed": True, "sale_recorded": recorded}
 
 def load_session(id: int, session: Session, device_id: str | None = None,
                  current_admin=None) -> Sessions:
@@ -382,6 +415,9 @@ def report_session_usage(id: int, request: Request,
     # Usage only grows, so a late or repeated report cannot lower the total.
     session_data.data_download_kb = max(session_data.data_download_kb or 0.0, data_download_kb)
     session.add(session_data)
+    if current_admin is None:
+        # Only a session the kiosk actually ran gets usage reports.
+        record_session_sale(session_data, session)
     session.commit()
     return {"data_download_kb": session_data.data_download_kb}
 

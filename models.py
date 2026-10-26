@@ -167,6 +167,10 @@ class Sessions(SQLModel, table=True):
     port_output_watts: Optional[float] = Field(default=None)
     session_active: bool = Field(default=True)
     duration_seconds: Optional[int] = Field(default=None)
+    # Credits charged for this session that are not yet recorded as a sale. The sale is recorded
+    # only once the kiosk confirms it actually started the session, so a start the kiosk refuses
+    # (and the phone then cancels) never books revenue.
+    pending_credits: Optional[int] = Field(default=None)
     paused_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None)
     paused_seconds: int = Field(default=0, ge=0, nullable=False)

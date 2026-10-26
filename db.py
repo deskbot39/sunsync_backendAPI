@@ -165,6 +165,14 @@ def create_db_and_tables():
                 "ALTER TABLE transactions ADD COLUMN device_id VARCHAR(100)"
             ))
     migrate_device_foreign_keys()
+    # After the table rebuild above, which only knows the older column set.
+    if "pending_credits" not in {
+        column["name"] for column in inspect(engine).get_columns("sessions")
+    }:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE sessions ADD COLUMN pending_credits INTEGER"
+            ))
 
 def create_initial_settings():
     with Session(engine) as session:
