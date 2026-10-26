@@ -10,6 +10,8 @@ const menuToggle = document.querySelector('.menu-toggle');
 const dashboardContent = document.querySelector('#dashboard-content');
 let lastFocusedElement = null;
 const API_BASE_URL = '';  // the pages are served by the backend itself
+// Times and sales days follow the kiosk's location, not the admin's browser.
+const KIOSK_TIME_ZONE = 'Asia/Manila';
 function fetchDownload(path) {
     return fetch(`${API_BASE_URL}${path}`, {
         headers: { Authorization: `Bearer ${getAccessToken()}` },
@@ -193,30 +195,18 @@ function parseServerTime(timestamp) {
 
 function formatTransactionTime(timestamp) {
     return new Intl.DateTimeFormat([], {
+        timeZone: KIOSK_TIME_ZONE,
         dateStyle: 'short',
         timeStyle: 'short',
     }).format(parseServerTime(timestamp));
 }
 
-function renderSalesSummary(transactions) {
-    const now = new Date();
-    const today = now.toDateString();
-    const month = now.getMonth();
-    const year = now.getFullYear();
-    const todayTotal = transactions
-        .filter(transaction => parseServerTime(transaction.timestamp).toDateString() === today)
-        .reduce((sum, transaction) => sum + Number(transaction.total_amount), 0);
-    const monthTotal = transactions
-        .filter(transaction => {
-            const timestamp = parseServerTime(transaction.timestamp);
-            return timestamp.getMonth() === month && timestamp.getFullYear() === year;
-        })
-        .reduce((sum, transaction) => sum + Number(transaction.total_amount), 0);
-
-    document.querySelector('#sales-today-value').textContent = formatCurrency(todayTotal);
-    document.querySelector('#sales-count-value').textContent = transactions.length;
-    document.querySelector('#sales-month-value').textContent = formatCurrency(monthTotal);
-
+// Totals come from the server, which counts every transaction (not just the latest page)
+// and groups days in the kiosk's time zone.
+function renderSalesSummary(summary) {
+    document.querySelector('#sales-today-value').textContent = formatCurrency(summary.today_total);
+    document.querySelector('#sales-count-value').textContent = summary.transaction_count;
+    document.querySelector('#sales-month-value').textContent = formatCurrency(summary.month_total);
 }
 
 function renderSalesTable() {
@@ -247,29 +237,18 @@ function renderSalesTable() {
     document.querySelector('#sales-next').disabled = salesPage === totalPages;
 }
 
-function renderSalesChart(transactions) {
+function renderSalesChart(summary) {
     const canvas = document.querySelector('#sales-chart');
     if (!canvas || typeof Chart === 'undefined') return;
-    const days = [];
-    for (let offset = 6; offset >= 0; --offset) {
-        const day = new Date();
-        day.setHours(0, 0, 0, 0);
-        day.setDate(day.getDate() - offset);
-        days.push(day);
-    }
-    const totals = days.map(() => 0);
-    transactions.forEach(transaction => {
-        const when = parseServerTime(transaction.timestamp).toDateString();
-        const index = days.findIndex(day => day.toDateString() === when);
-        if (index >= 0) totals[index] += Number(transaction.total_amount);
-    });
+    const days = summary.daily || [];
+    const totals = days.map(day => Number(day.total));
     if (salesChart) salesChart.destroy();
     salesChart = new Chart(canvas, {
         type: 'bar',
         data: {
             labels: days.map(day => new Intl.DateTimeFormat([], {
-                month: 'short', day: 'numeric',
-            }).format(day)),
+                month: 'short', day: 'numeric', timeZone: 'UTC',
+            }).format(new Date(`${day.date}T00:00:00Z`))),
             datasets: [{
                 label: 'Sales (PHP)',
                 data: totals,
@@ -287,10 +266,10 @@ function renderSalesChart(transactions) {
     });
 }
 
-function renderSales(transactions) {
+function renderSales(transactions, summary) {
     salesTransactions = transactions;
-    renderSalesSummary(transactions);
-    renderSalesChart(transactions);
+    renderSalesSummary(summary);
+    renderSalesChart(summary);
     renderSalesTable();
 }
 
@@ -305,7 +284,11 @@ async function loadSales() {
         return;
     }
     if (!response.ok) throw new Error(`Sales request failed (${response.status})`);
-    renderSales(await response.json());
+    const summaryResponse = await fetch(`${API_BASE_URL}/transactions/summary`, {
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+    });
+    if (!summaryResponse.ok) throw new Error(`Sales summary request failed (${summaryResponse.status})`);
+    renderSales(await response.json(), await summaryResponse.json());
 }
 
 async function loadSettingsForm() {
@@ -506,7 +489,7 @@ function renderChargingTable() {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td data-label="Device">${escapeHtml(item.device_id)}</td>
-                <td data-label="Started">${Number.isNaN(started.getTime()) ? '--' : started.toLocaleString()}</td>
+                <td data-label="Started">${Number.isNaN(started.getTime()) ? '--' : started.toLocaleString([], { timeZone: KIOSK_TIME_ZONE })}</td>
                 <td data-label="Status">${item.session_active ? 'Active' : 'Inactive'}</td>
                 <td data-label="Duration">${formatSessionDuration(item.duration_seconds || 0)}</td>
                 <td data-label="Action">${item.session_active && item.id
@@ -544,7 +527,7 @@ function renderSolarSummary(summary) {
         type: 'line',
         data: {
             labels: summary.history_labels.map(label =>
-                new Intl.DateTimeFormat([], { timeStyle: 'short' }).format(parseServerTime(label))
+                new Intl.DateTimeFormat([], { timeStyle: 'short', timeZone: KIOSK_TIME_ZONE }).format(parseServerTime(label))
             ),
             datasets: [{
                 label: 'Output (W)',
