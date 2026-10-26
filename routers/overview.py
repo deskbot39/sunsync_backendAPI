@@ -4,7 +4,7 @@ from decimal import Decimal
 from io import StringIO
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 from db import get_session
 from models import (
     Devices,
@@ -67,6 +67,7 @@ def get_sensors(session: Session = Depends(get_session),
             select(Ina219Reading)
             .where(Ina219Reading.sensor_id == sensor_id)
             .order_by(Ina219Reading.id.desc())
+            .limit(1)
         ).first()
         if not reading:
             return {"available": False}
@@ -88,29 +89,30 @@ def get_sensors(session: Session = Depends(get_session),
 @router.get("/overview-summary", response_model=OverviewSummaryResponse)
 def get_overview_summary(session: Session = Depends(get_session),
                          current_admin=Depends(get_current_admin)):
-    settings = session.exec(select(SystemSettings)).first()
+    settings = session.exec(select(SystemSettings).limit(1)).first()
     latest_status = session.exec(
-        select(SystemStatus).order_by(SystemStatus.id.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc()).limit(1)
     ).first()
     if not settings or not latest_status:
         raise HTTPException(status_code=404, detail="Overview data not found")
 
-    wifi_sessions = session.exec(
-        select(Sessions).where(Sessions.session_type == "wifi")
-    ).all()
-    charging_sessions = session.exec(
-        select(Sessions).where(Sessions.session_type == "charging")
-    ).all()
-    transactions = session.exec(select(Transactions)).all()
+    active_by_type = dict(session.exec(
+        select(Sessions.session_type, func.count())
+        .where(Sessions.session_active == True)  # noqa: E712
+        .group_by(Sessions.session_type)
+    ).all())
+    total_sales = session.exec(select(func.sum(Transactions.total_amount))).one()
+    active_wifi = active_by_type.get("wifi", 0)
+    active_charging = active_by_type.get("charging", 0)
     return OverviewSummaryResponse(
         wifi_rate_per_coin=settings.wifi_rate_per_coin,
         charging_rate_per_coin=settings.charging_rate_per_coin,
         battery_pct=latest_status.battery_pct,
-        active_wifi_users=sum(1 for item in wifi_sessions if item.session_active),
-        active_charging_users=sum(1 for item in charging_sessions if item.session_active),
-        total_sales=sum((item.total_amount for item in transactions), Decimal("0")),
-        registered_devices=len(session.exec(select(Devices)).all()),
-        active_sessions=sum(1 for item in wifi_sessions + charging_sessions if item.session_active),
+        active_wifi_users=active_wifi,
+        active_charging_users=active_charging,
+        total_sales=Decimal(str(total_sales or 0)),
+        registered_devices=session.exec(select(func.count()).select_from(Devices)).one(),
+        active_sessions=active_wifi + active_charging,
         last_status_update=latest_status.timestamp,
     )
 
@@ -118,7 +120,7 @@ def get_overview_summary(session: Session = Depends(get_session),
 def get_system_health(session: Session = Depends(get_session),
                       current_admin=Depends(get_current_admin)):
     latest = session.exec(
-        select(SystemStatus).order_by(SystemStatus.id.desc())
+        select(SystemStatus).order_by(SystemStatus.id.desc()).limit(1)
     ).first()
     if not latest:
         raise HTTPException(status_code=404, detail="System health not found")
@@ -133,8 +135,14 @@ def export_business_data(session: Session = Depends(get_session),
     transactions = session.exec(
         select(Transactions).order_by(Transactions.timestamp.desc())
     ).all()
+    # Plain column rows instead of ORM objects: this table grows by ~1 row/s, and building
+    # tens of thousands of model instances would stall the single worker for minutes.
     statuses = session.exec(
-        select(SystemStatus).order_by(SystemStatus.id.desc())
+        select(SystemStatus.id, SystemStatus.timestamp, SystemStatus.system_name,
+               SystemStatus.is_online, SystemStatus.uptime_seconds, SystemStatus.battery_pct,
+               SystemStatus.solar_voltage, SystemStatus.solar_current,
+               SystemStatus.wifi_strength, SystemStatus.last_ping)
+        .order_by(SystemStatus.id.desc())
     ).all()
     latest_status = statuses[0] if statuses else None
     exported_at = datetime.now(timezone.utc).isoformat()

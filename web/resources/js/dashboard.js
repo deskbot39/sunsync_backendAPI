@@ -638,6 +638,10 @@ function renderDeviceSensors(data) {
 }
 
 async function refreshDeviceSensors() {
+    if (document.hidden) {
+        window.setTimeout(refreshDeviceSensors, 5000);
+        return;
+    }
     try {
         const response = await fetch(`${API_BASE_URL}/status/sensors`, {
             cache: 'no-store',
@@ -673,6 +677,10 @@ async function refreshDeviceSensors() {
 
 // The charging tab shows the same backend battery sensor as the overview battery card.
 async function refreshBatterySensor() {
+    if (document.hidden) {
+        window.setTimeout(refreshBatterySensor, 5000);
+        return;
+    }
     try {
         const response = await fetch(`${API_BASE_URL}/status/sensors`, {
             cache: 'no-store',
@@ -1303,14 +1311,16 @@ if (BATTERY_DEMO_MODE) {
         document.querySelector('#esp32-wifi-clients-body').innerHTML =
             '<tr><td colspan="5">ESP32 client data unavailable.</td></tr>';
     });
-    window.setInterval(() => loadEsp32WifiClients().catch(error => {
+    window.setInterval(() => !document.hidden && loadEsp32WifiClients().catch(error => {
         console.error(error);
         document.querySelector('#esp32-wifi-status').textContent =
             'Unable to refresh ESP32 AP client data.';
     }), 5000);
     loadOverviewSummary().catch(error => console.error(error));
     refreshSystemHealth();
-    systemHealthPollTimer = window.setInterval(refreshSystemHealth, 10000);
+    systemHealthPollTimer = window.setInterval(() => {
+        if (!document.hidden) refreshSystemHealth();
+    }, 10000);
     window.setInterval(renderSystemUptime, 1000);
     loadBackupStatus().catch(error => console.error(error));
     window.setInterval(() => {
